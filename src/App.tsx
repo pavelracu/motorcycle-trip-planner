@@ -1,15 +1,15 @@
 import { memo, useState, useTransition } from 'react'
 import TripMap from './components/TripMap'
-import { applyAutoVia } from './lib/consolidateWaypoints'
-import { enrichWaypointsWithLocality } from './lib/locality'
-import { planToText } from './lib/exportText'
+import { labelFromFileName } from './lib/dayRouteLabel'
+import { multiDayPlanToText } from './lib/exportText'
 import { parseRouteFile } from './lib/parseRouteFile'
 import { clearRouteCache } from './lib/routing'
-import { buildTripPlan } from './lib/tripPlanner'
-import type { TripPlan, TripSettings, Waypoint } from './lib/types'
+import { buildMultiDayTripPlan } from './lib/multiDayPlanner'
+import type { MultiDayTripPlan, TripDayRoute, TripSettings } from './lib/types'
 
 const DEFAULT_SETTINGS: TripSettings = {
   departureIso: '2026-05-25T06:00:00',
+  dailyStartTime: '06:00',
   tankRangeKm: 180,
   shortBreakEveryMinutes: 120,
   shortBreakDurationMinutes: 15,
@@ -24,16 +24,18 @@ const DEFAULT_SETTINGS: TripSettings = {
 const TripSettingsForm = memo(function TripSettingsForm({
   settings,
   onChange,
+  multiDay,
 }: {
   settings: TripSettings
   onChange: <K extends keyof TripSettings>(key: K, value: TripSettings[K]) => void
+  multiDay: boolean
 }) {
   return (
     <section className="mb-4 rounded-xl border border-slate-700/80 bg-slate-900/60 p-4">
       <h2 className="mb-3 text-sm font-medium text-white">Trip settings</h2>
       <div className="grid gap-3">
         <label className="block text-sm">
-          <span className="text-slate-400">Departure</span>
+          <span className="text-slate-400">Day 1 departure</span>
           <input
             type="datetime-local"
             className="mt-1 w-full rounded-lg border border-slate-600 bg-slate-800 px-3 py-2 text-white"
@@ -41,6 +43,17 @@ const TripSettingsForm = memo(function TripSettingsForm({
             onChange={(e) => onChange('departureIso', `${e.target.value}:00`)}
           />
         </label>
+        {multiDay ? (
+          <label className="block text-sm">
+            <span className="text-slate-400">Days 2+ start at</span>
+            <input
+              type="time"
+              className="mt-1 w-full rounded-lg border border-slate-600 bg-slate-800 px-3 py-2 text-white"
+              value={settings.dailyStartTime}
+              onChange={(e) => onChange('dailyStartTime', e.target.value)}
+            />
+          </label>
+        ) : null}
         <label className="block text-sm">
           <span className="text-slate-400">Tank range (km)</span>
           <input
@@ -143,9 +156,9 @@ const TripSettingsForm = memo(function TripSettingsForm({
 })
 
 export default function App() {
-  const [waypoints, setWaypoints] = useState<Waypoint[]>([])
+  const [days, setDays] = useState<TripDayRoute[]>([])
   const [settings, setSettings] = useState<TripSettings>(DEFAULT_SETTINGS)
-  const [plan, setPlan] = useState<TripPlan | null>(null)
+  const [plan, setPlan] = useState<MultiDayTripPlan | null>(null)
   const [output, setOutput] = useState('')
   const [status, setStatus] = useState('')
   const [planning, setPlanning] = useState(false)
@@ -153,6 +166,7 @@ export default function App() {
   const [isPending, startTransition] = useTransition()
 
   const busy = planning || isPending
+  const totalWaypoints = days.reduce((n, d) => n + d.waypoints.length, 0)
 
   function updateSetting<K extends keyof TripSettings>(
     key: K,
@@ -165,42 +179,67 @@ export default function App() {
     startTransition(() => setStatus(msg))
   }
 
-  async function onFile(file: File) {
+  async function onFiles(fileList: FileList | null) {
+    if (!fileList?.length) return
     setError('')
     clearRouteCache()
     setPlan(null)
+
+    const newDays: TripDayRoute[] = []
+    const startIndex = days.length
+
     try {
-      const xml = await file.text()
-      const wps = parseRouteFile(xml, file.name)
-      setWaypoints(wps)
+      for (let i = 0; i < fileList.length; i++) {
+        const file = fileList[i]
+        const xml = await file.text()
+        const wps = parseRouteFile(xml, file.name)
+        newDays.push({
+          id: crypto.randomUUID(),
+          label: labelFromFileName(file.name, startIndex + i),
+          fileName: file.name,
+          waypoints: wps,
+        })
+      }
+      setDays((prev) => [...prev, ...newDays])
       setOutput('')
-      setStatus(`Loaded ${wps.length} waypoints from ${file.name}`)
+      setStatus(
+        `Added ${newDays.length} route file${newDays.length === 1 ? '' : 's'} (${days.length + newDays.length} day${days.length + newDays.length === 1 ? '' : 's'} total)`,
+      )
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to parse route file')
-      setWaypoints([])
     }
   }
 
+  function removeDay(id: string) {
+    setDays((prev) => prev.filter((d) => d.id !== id))
+    setPlan(null)
+    setOutput('')
+  }
+
+  function clearDays() {
+    setDays([])
+    setPlan(null)
+    setOutput('')
+    setStatus('')
+    clearRouteCache()
+  }
+
   async function generate() {
-    if (waypoints.length < 2) {
-      setError('Upload a route file with at least 2 waypoints')
+    if (days.length === 0) {
+      setError('Upload at least one route file')
+      return
+    }
+    if (days.some((d) => d.waypoints.length < 2)) {
+      setError('Each day needs at least 2 waypoints')
       return
     }
     setPlanning(true)
     setError('')
     try {
-      const resolved = waypoints.map((w) => ({ ...w }))
-      await enrichWaypointsWithLocality(resolved, reportProgress)
-      const routed = await applyAutoVia(
-        resolved,
-        settings.autoViaMaxLegKm,
-        reportProgress,
-      )
-      const trip = await buildTripPlan(routed, settings, reportProgress)
+      const trip = await buildMultiDayTripPlan(days, settings, reportProgress)
       startTransition(() => {
-        setWaypoints(routed)
         setPlan(trip)
-        setOutput(planToText(trip))
+        setOutput(multiDayPlanToText(trip))
         setStatus('Done')
       })
     } catch (e) {
@@ -227,33 +266,71 @@ export default function App() {
 
         <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
           <section className="mb-4 rounded-xl border border-slate-700/80 bg-slate-900/60 p-4">
-            <h2 className="mb-2 text-sm font-medium text-white">Route file</h2>
+            <h2 className="mb-2 text-sm font-medium text-white">Route files</h2>
             <input
               type="file"
+              multiple
               accept=".gpx,.kml,application/gpx+xml,application/vnd.google-earth.kml+xml"
               className="block w-full text-sm text-slate-300 file:mr-3 file:rounded-lg file:border-0 file:bg-amber-500 file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-slate-950 hover:file:bg-amber-400"
               onChange={(e) => {
-                const f = e.target.files?.[0]
-                if (f) void onFile(f)
+                void onFiles(e.target.files)
+                e.target.value = ''
               }}
             />
             <p className="mt-2 text-xs text-slate-500">
-              Export KML from Google My Maps. Use <code className="text-amber-300/90">[via]</code>{' '}
-              / <code className="text-amber-300/90">[stop]</code> on pin names to override.
+              Upload one GPX/KML per riding day (e.g. day1.gpx … day5.gpx). Export
+              from Google My Maps. Use{' '}
+              <code className="text-amber-300/90">[via]</code> /{' '}
+              <code className="text-amber-300/90">[stop]</code> on pin names.
             </p>
-            {waypoints.length > 0 ? (
-              <p className="mt-2 text-xs text-slate-400">
-                {waypoints.length} waypoints loaded
-              </p>
+            {days.length > 0 ? (
+              <ul className="mt-3 space-y-2">
+                {days.map((day) => (
+                  <li
+                    key={day.id}
+                    className="flex items-start justify-between gap-2 rounded-lg bg-slate-800/60 px-2 py-1.5 text-xs"
+                  >
+                    <span className="min-w-0 text-slate-300">
+                      <span className="font-medium text-amber-200/90">
+                        {day.label}
+                      </span>
+                      <span className="block truncate text-slate-500">
+                        {day.fileName} · {day.waypoints.length} waypoints
+                      </span>
+                    </span>
+                    <button
+                      type="button"
+                      className="shrink-0 text-slate-500 hover:text-red-400"
+                      onClick={() => removeDay(day.id)}
+                      aria-label={`Remove ${day.label}`}
+                    >
+                      ×
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+            {days.length > 0 ? (
+              <button
+                type="button"
+                className="mt-2 text-xs text-slate-500 underline hover:text-slate-300"
+                onClick={clearDays}
+              >
+                Clear all days
+              </button>
             ) : null}
           </section>
 
-          <TripSettingsForm settings={settings} onChange={updateSetting} />
+          <TripSettingsForm
+            settings={settings}
+            onChange={updateSetting}
+            multiDay={days.length > 1}
+          />
 
           <div className="mb-4 flex flex-wrap gap-2">
             <button
               type="button"
-              disabled={busy || waypoints.length < 2}
+              disabled={busy || days.length === 0}
               onClick={() => void generate()}
               className="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-slate-950 disabled:opacity-40"
             >
@@ -281,17 +358,24 @@ export default function App() {
 
           {output ? (
             <section className="rounded-xl border border-slate-700/80 bg-black/40 p-3">
-              <h2 className="mb-2 text-sm font-medium text-white">Itinerary</h2>
+              <h2 className="mb-2 text-sm font-medium text-white">
+                Itinerary{days.length > 1 ? ` · ${days.length} days` : ''}
+              </h2>
               <pre className="max-h-64 overflow-y-auto whitespace-pre-wrap font-mono text-xs leading-relaxed text-amber-100/95">
                 {output}
               </pre>
             </section>
+          ) : days.length > 0 && !plan ? (
+            <p className="text-xs text-slate-500">
+              {totalWaypoints} waypoints across {days.length} day
+              {days.length === 1 ? '' : 's'} — generate to see times and breaks.
+            </p>
           ) : null}
         </div>
       </aside>
 
       <main className="min-w-0 flex-1">
-        <TripMap waypoints={waypoints} plan={plan} />
+        <TripMap days={days} plan={plan} />
       </main>
     </div>
   )

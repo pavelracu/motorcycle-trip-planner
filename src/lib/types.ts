@@ -11,6 +11,8 @@ export interface Waypoint {
 
 export interface TripSettings {
   departureIso: string
+  /** HH:mm — when each subsequent riding day starts (day 2+). */
+  dailyStartTime: string
   tankRangeKm: number
   shortBreakEveryMinutes: number
   shortBreakDurationMinutes: number
@@ -66,6 +68,7 @@ export interface MapMarker {
   typeLabel: string
   time?: Date
   kmSinceLastFuel?: number
+  dayLabel?: string
 }
 
 export interface RouteLegStats {
@@ -98,5 +101,33 @@ export interface TripPlan {
   segments: ItinerarySegment[]
   summary: TripSummary
   routeLine: [number, number][]
+  markers: MapMarker[]
+}
+
+export interface TripDayRoute {
+  id: string
+  label: string
+  fileName: string
+  waypoints: Waypoint[]
+}
+
+export interface DayPlan extends TripPlan {
+  dayIndex: number
+  label: string
+  departureIso: string
+  endTime: Date
+}
+
+export interface RouteLineLayer {
+  dayIndex: number
+  label: string
+  line: [number, number][]
+  color: string
+}
+
+export interface MultiDayTripPlan {
+  days: DayPlan[]
+  summary: TripSummary
+  routeLines: RouteLineLayer[]
   markers: MapMarker[]
 }

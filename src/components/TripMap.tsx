@@ -9,9 +9,10 @@ import {
   useMap,
 } from 'react-leaflet'
 import { formatDistance, formatTime } from '../lib/format'
+import { DAY_ROUTE_COLORS } from '../lib/multiDayPlanner'
 import type { LatLng } from '../lib/geo'
 import { MARKER_TYPE_LABELS } from '../lib/markerLabels'
-import type { MapMarker, TripPlan, Waypoint } from '../lib/types'
+import type { MapMarker, MultiDayTripPlan, TripDayRoute } from '../lib/types'
 import 'leaflet/dist/leaflet.css'
 
 const MARKER_STYLE: Record<
@@ -44,6 +45,9 @@ function MarkerPopup({ marker }: { marker: MapMarker }) {
     <div className="min-w-[140px] text-sm text-slate-900">
       <p className="font-semibold">{marker.label}</p>
       <p className="text-slate-600">{marker.typeLabel}</p>
+      {marker.dayLabel ? (
+        <p className="text-slate-500">{marker.dayLabel}</p>
+      ) : null}
       {marker.time ? (
         <p className="mt-1 text-slate-500">Arrival {formatTime(marker.time)}</p>
       ) : null}
@@ -56,7 +60,11 @@ function MarkerPopup({ marker }: { marker: MapMarker }) {
   )
 }
 
-function MapLegend() {
+function MapLegend({
+  dayLines,
+}: {
+  dayLines: { label: string; color: string }[]
+}) {
   const items: { color: string; label: string }[] = [
     { color: '#22c55e', label: 'Departure' },
     { color: '#3b82f6', label: 'Major stop' },
@@ -68,7 +76,22 @@ function MapLegend() {
     { color: '#ef4444', label: 'Arrival' },
   ]
   return (
-    <div className="absolute bottom-4 right-4 z-[1000] max-w-[200px] rounded-lg border border-slate-600/80 bg-slate-950/90 px-3 py-2 text-xs text-slate-300 shadow-lg backdrop-blur">
+    <div className="absolute bottom-4 right-4 z-[1000] max-w-[220px] rounded-lg border border-slate-600/80 bg-slate-950/90 px-3 py-2 text-xs text-slate-300 shadow-lg backdrop-blur">
+      {dayLines.length > 1 ? (
+        <>
+          <p className="mb-1 font-medium text-slate-200">Days</p>
+          {dayLines.map((day) => (
+            <div key={day.label} className="flex items-center gap-2 py-0.5">
+              <span
+                className="inline-block h-1 w-4 shrink-0 rounded"
+                style={{ background: day.color }}
+              />
+              {day.label}
+            </div>
+          ))}
+          <div className="my-1.5 border-t border-slate-700" />
+        </>
+      ) : null}
       {items.map((item) => (
         <div key={item.label} className="flex items-center gap-2 py-0.5">
           <span
@@ -82,62 +105,95 @@ function MapLegend() {
   )
 }
 
-export default function TripMap({
-  waypoints,
-  plan,
-}: {
-  waypoints: Waypoint[]
-  plan: TripPlan | null
-}) {
-  const routeLine = useMemo((): LatLng[] => {
-    if (plan?.routeLine.length) return plan.routeLine
-    return waypoints.map((w) => [w.lat, w.lon])
-  }, [plan, waypoints])
+function previewMarkers(days: TripDayRoute[]): MapMarker[] {
+  const list: MapMarker[] = []
 
-  const markers = useMemo((): MapMarker[] => {
-    if (plan?.markers.length) return plan.markers
-    if (waypoints.length === 0) return []
-    const list: MapMarker[] = [
-      {
-        lat: waypoints[0].lat,
-        lon: waypoints[0].lon,
+  for (let dayIdx = 0; dayIdx < days.length; dayIdx++) {
+    const wps = days[dayIdx].waypoints
+    if (wps.length === 0) continue
+    const isFirstDay = dayIdx === 0
+    const isLastDay = dayIdx === days.length - 1
+
+    if (isFirstDay) {
+      list.push({
+        lat: wps[0].lat,
+        lon: wps[0].lon,
         kind: 'start',
-        label: waypoints[0].displayName,
+        label: wps[0].displayName,
         typeLabel: MARKER_TYPE_LABELS.start,
-      },
-    ]
-    for (let i = 1; i < waypoints.length - 1; i++) {
-      const w = waypoints[i]
+        dayLabel: days[dayIdx].label,
+      })
+    }
+
+    for (let i = 1; i < wps.length - 1; i++) {
+      const w = wps[i]
       list.push({
         lat: w.lat,
         lon: w.lon,
         kind: w.role === 'via' ? 'via' : 'pin',
         label: w.displayName,
         typeLabel: MARKER_TYPE_LABELS[w.role === 'via' ? 'via' : 'pin'],
+        dayLabel: days[dayIdx].label,
       })
     }
-    if (waypoints.length > 1) {
-      const end = waypoints[waypoints.length - 1]
+
+    if (wps.length > 1) {
+      const end = wps[wps.length - 1]
       list.push({
         lat: end.lat,
         lon: end.lon,
-        kind: 'end',
+        kind: isLastDay ? 'end' : 'major',
         label: end.displayName,
-        typeLabel: MARKER_TYPE_LABELS.end,
+        typeLabel: isLastDay ? MARKER_TYPE_LABELS.end : MARKER_TYPE_LABELS.major,
+        dayLabel: days[dayIdx].label,
       })
     }
-    return list
-  }, [plan, waypoints])
+  }
+
+  return list
+}
+
+export default function TripMap({
+  days,
+  plan,
+}: {
+  days: TripDayRoute[]
+  plan: MultiDayTripPlan | null
+}) {
+  const routeLines = useMemo(() => {
+    if (plan?.routeLines.length) return plan.routeLines
+    return days.map((day, i) => ({
+      dayIndex: i,
+      label: day.label,
+      line: day.waypoints.map((w) => [w.lat, w.lon] as LatLng),
+      color: DAY_ROUTE_COLORS[i % DAY_ROUTE_COLORS.length],
+    }))
+  }, [plan, days])
+
+  const fitPoints = useMemo((): LatLng[] => {
+    const fromRoutes = routeLines.flatMap((r) => r.line)
+    if (fromRoutes.length >= 2) return fromRoutes
+    return days.flatMap((d) => d.waypoints.map((w) => [w.lat, w.lon] as LatLng))
+  }, [routeLines, days])
+
+  const markers = useMemo((): MapMarker[] => {
+    if (plan?.markers.length) return plan.markers
+    if (days.length === 0) return []
+    return previewMarkers(days)
+  }, [plan, days])
 
   const center = useMemo((): LatLng => {
-    if (waypoints.length > 0) return [waypoints[0].lat, waypoints[0].lon]
+    const first = days[0]?.waypoints[0]
+    if (first) return [first.lat, first.lon]
     return [39.5, -8]
-  }, [waypoints])
+  }, [days])
 
-  if (waypoints.length === 0) {
+  const hasRoutes = days.some((d) => d.waypoints.length > 0)
+
+  if (!hasRoutes) {
     return (
       <div className="flex h-full items-center justify-center bg-slate-900 text-slate-500">
-        Upload a route file to see the map
+        Upload route files to see the map
       </div>
     )
   }
@@ -154,13 +210,20 @@ export default function TripMap({
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         />
-        <FitBounds points={routeLine} />
-        {routeLine.length >= 2 ? (
-          <Polyline
-            positions={routeLine}
-            pathOptions={{ color: '#fbbf24', weight: 4, opacity: 0.85 }}
-          />
-        ) : null}
+        <FitBounds points={fitPoints} />
+        {routeLines.map((layer) =>
+          layer.line.length >= 2 ? (
+            <Polyline
+              key={`route-${layer.dayIndex}`}
+              positions={layer.line}
+              pathOptions={{
+                color: layer.color,
+                weight: 4,
+                opacity: 0.85,
+              }}
+            />
+          ) : null,
+        )}
         {markers.map((m, i) => {
           const style = MARKER_STYLE[m.kind]
           return (
@@ -182,7 +245,9 @@ export default function TripMap({
           )
         })}
       </MapContainer>
-      <MapLegend />
+      <MapLegend
+        dayLines={routeLines.map((r) => ({ label: r.label, color: r.color }))}
+      />
     </div>
   )
 }
