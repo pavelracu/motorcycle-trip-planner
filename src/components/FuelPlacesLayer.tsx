@@ -1,25 +1,12 @@
 import { useEffect, useState } from 'react'
-import { CircleMarker, Popup, useMapEvents } from 'react-leaflet'
+import { Marker, Popup, useMapEvents } from 'react-leaflet'
 import {
-  boundsFromPoints,
-  fetchFuelPlacesInBounds,
+  fetchFuelPlacesNearRoute,
   reverseFuelPlaceName,
   type FuelPlace,
 } from '../lib/fuelPlaces'
 import type { LatLng } from '../lib/geo'
-
-const OSM_STYLE = {
-  color: '#475569',
-  radius: 4,
-  fillColor: '#94a3b8',
-  fillOpacity: 0.85,
-}
-const USER_STYLE = {
-  color: '#14532d',
-  radius: 6,
-  fillColor: '#22c55e',
-  fillOpacity: 0.95,
-}
+import { osmFuelIcon, savedFuelIcon } from '../lib/mapIcons'
 
 function MapClickAddFuel({
   active,
@@ -92,13 +79,11 @@ export default function FuelPlacesLayer({
       setOsmPlaces([])
       return
     }
-    const bounds = boundsFromPoints(routePoints)
-    if (!bounds) return
 
     let cancelled = false
     setLoading(true)
     setError('')
-    fetchFuelPlacesInBounds(bounds)
+    fetchFuelPlacesNearRoute(routePoints)
       .then((places) => {
         if (!cancelled) setOsmPlaces(places)
       })
@@ -148,34 +133,24 @@ export default function FuelPlacesLayer({
         </div>
       ) : null}
       {userPlaces.map((place) => (
-        <CircleMarker
+        <Marker
           key={place.id}
-          center={[place.lat, place.lon]}
-          radius={USER_STYLE.radius}
-          pathOptions={{
-            color: USER_STYLE.color,
-            weight: 2,
-            fillColor: USER_STYLE.fillColor,
-            fillOpacity: USER_STYLE.fillOpacity,
-          }}
+          position={[place.lat, place.lon]}
+          icon={savedFuelIcon()}
+          zIndexOffset={800}
         >
           <Popup>
             <FuelPopup place={place} isSaved />
           </Popup>
-        </CircleMarker>
+        </Marker>
       ))}
       {showOsm
         ? osmPlaces.map((place) => (
-            <CircleMarker
+            <Marker
               key={place.id}
-              center={[place.lat, place.lon]}
-              radius={OSM_STYLE.radius}
-              pathOptions={{
-                color: OSM_STYLE.color,
-                weight: 1,
-                fillColor: OSM_STYLE.fillColor,
-                fillOpacity: OSM_STYLE.fillOpacity,
-              }}
+              position={[place.lat, place.lon]}
+              icon={osmFuelIcon()}
+              zIndexOffset={500}
             >
               <Popup>
                 <FuelPopup
@@ -184,7 +159,7 @@ export default function FuelPlacesLayer({
                   onSave={() => onSaveOsmPlace(place)}
                 />
               </Popup>
-            </CircleMarker>
+            </Marker>
           ))
         : null}
     </>

@@ -3,6 +3,7 @@ import { useEffect, useMemo } from 'react'
 import {
   CircleMarker,
   MapContainer,
+  Marker,
   Polyline,
   Popup,
   TileLayer,
@@ -11,6 +12,7 @@ import {
 import { formatDistance, formatTime } from '../lib/format'
 import { DAY_ROUTE_COLORS } from '../lib/multiDayPlanner'
 import type { LatLng } from '../lib/geo'
+import { lunchRefuelIcon, plannedFuelIcon } from '../lib/mapIcons'
 import { MARKER_TYPE_LABELS } from '../lib/markerLabels'
 import FuelPlacesLayer from './FuelPlacesLayer'
 import type { FuelPlace } from '../lib/fuelPlaces'
@@ -25,11 +27,19 @@ const MARKER_STYLE: Record<
   end: { color: '#ef4444', radius: 9, fillOpacity: 0.95 },
   major: { color: '#3b82f6', radius: 8, fillOpacity: 0.9 },
   pin: { color: '#94a3b8', radius: 5, fillOpacity: 0.75 },
-  via: { color: '#64748b', radius: 4, fillOpacity: 0.5 },
+  via: { color: '#64748b', radius: 3, fillOpacity: 0.28 },
   fuel: { color: '#f59e0b', radius: 7, fillOpacity: 0.95 },
   short: { color: '#a855f7', radius: 7, fillOpacity: 0.95 },
   lunch: { color: '#eab308', radius: 7, fillOpacity: 0.95 },
   'lunch-refuel': { color: '#ec4899', radius: 8, fillOpacity: 0.95 },
+}
+
+const FUEL_MARKER_KINDS = new Set<MapMarker['kind']>(['fuel', 'lunch-refuel'])
+
+function fuelMarkerIcon(kind: MapMarker['kind']) {
+  if (kind === 'fuel') return plannedFuelIcon()
+  if (kind === 'lunch-refuel') return lunchRefuelIcon()
+  return null
 }
 
 function FitBounds({ points }: { points: LatLng[] }) {
@@ -68,24 +78,28 @@ function MarkerPopup({ marker }: { marker: MapMarker }) {
 function MapLegend({
   dayLines,
   showFuelLayer,
+  hasSavedFuel,
 }: {
   dayLines: { label: string; color: string }[]
   showFuelLayer: boolean
+  hasSavedFuel: boolean
 }) {
-  const items: { color: string; label: string }[] = [
-    { color: '#22c55e', label: 'Departure' },
-    { color: '#3b82f6', label: 'Major stop' },
-    { color: '#f59e0b', label: 'Planned fuel' },
-    { color: '#eab308', label: 'Lunch' },
-    { color: '#ec4899', label: 'Lunch & refuel' },
-    { color: '#a855f7', label: 'Short break' },
-    { color: '#64748b', label: 'Via' },
-    { color: '#ef4444', label: 'Arrival' },
+  type LegendItem =
+    | { label: string; color: string }
+    | { label: string; colors: string[] }
+
+  const items: LegendItem[] = [
+    { label: 'Start / end', colors: ['#22c55e', '#ef4444'] },
+    { label: 'Stop', color: '#3b82f6' },
+    { label: 'Planned fuel ⛽', color: '#f59e0b' },
+    { label: 'Via', color: '#64748b' },
   ]
   if (showFuelLayer) {
-    items.push({ color: '#94a3b8', label: 'Gas station (OSM)' })
+    items.push({ label: 'Gas station ⛽', color: '#f97316' })
   }
-  items.push({ color: '#4ade80', label: 'My fuel stop' })
+  if (hasSavedFuel) {
+    items.push({ label: 'Saved fuel', color: '#4ade80' })
+  }
   return (
     <div className="absolute bottom-4 right-4 z-[1000] max-w-[220px] rounded-lg border border-slate-600/80 bg-slate-950/90 px-3 py-2 text-xs text-slate-300 shadow-lg backdrop-blur">
       {dayLines.length > 1 ? (
@@ -105,10 +119,22 @@ function MapLegend({
       ) : null}
       {items.map((item) => (
         <div key={item.label} className="flex items-center gap-2 py-0.5">
-          <span
-            className="inline-block h-2.5 w-2.5 shrink-0 rounded-full"
-            style={{ background: item.color }}
-          />
+          {'colors' in item ? (
+            <span className="flex shrink-0 gap-0.5">
+              {item.colors.map((c) => (
+                <span
+                  key={c}
+                  className="inline-block h-2.5 w-2.5 rounded-full"
+                  style={{ background: c }}
+                />
+              ))}
+            </span>
+          ) : (
+            <span
+              className="inline-block h-2.5 w-2.5 shrink-0 rounded-full"
+              style={{ background: item.color }}
+            />
+          )}
           {item.label}
         </div>
       ))}
@@ -235,7 +261,7 @@ export default function TripMap({
               : 'border-slate-600/80 bg-slate-950/90 text-slate-300'
           }`}
         >
-          Gas stations
+          Gas stations (10 km)
         </button>
         <button
           type="button"
@@ -279,6 +305,22 @@ export default function TripMap({
           ) : null,
         )}
         {markers.map((m, i) => {
+          const fuelIcon = FUEL_MARKER_KINDS.has(m.kind) ? fuelMarkerIcon(m.kind) : null
+          if (fuelIcon) {
+            return (
+              <Marker
+                key={`${m.kind}-${m.lat}-${m.lon}-${i}`}
+                position={[m.lat, m.lon]}
+                icon={fuelIcon}
+                zIndexOffset={600}
+              >
+                <Popup>
+                  <MarkerPopup marker={m} />
+                </Popup>
+              </Marker>
+            )
+          }
+
           const style = MARKER_STYLE[m.kind]
           return (
             <CircleMarker
@@ -286,8 +328,8 @@ export default function TripMap({
               center={[m.lat, m.lon]}
               radius={style.radius}
               pathOptions={{
-                color: '#0f172a',
-                weight: 1.5,
+                color: m.kind === 'via' ? '#475569' : '#0f172a',
+                weight: m.kind === 'via' ? 1 : 1.5,
                 fillColor: style.color,
                 fillOpacity: style.fillOpacity,
               }}
@@ -310,6 +352,7 @@ export default function TripMap({
       <MapLegend
         dayLines={routeLines.map((r) => ({ label: r.label, color: r.color }))}
         showFuelLayer={showFuelLayer}
+        hasSavedFuel={userFuelPlaces.length > 0}
       />
     </div>
   )

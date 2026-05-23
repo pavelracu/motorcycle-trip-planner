@@ -1,4 +1,4 @@
-import type { LatLng } from './geo'
+import { distanceToRouteKm, samplePointsAlongRoute, type LatLng } from './geo'
 
 export interface FuelPlace {
   id: string
@@ -10,31 +10,10 @@ export interface FuelPlace {
   notes?: string
 }
 
+export const FUEL_CORRIDOR_KM = 10
+
 export function fuelPlaceKey(lat: number, lon: number): string {
   return `${lat.toFixed(5)},${lon.toFixed(5)}`
-}
-
-export function boundsFromPoints(
-  points: LatLng[],
-  paddingDeg = 0.08,
-): { south: number; west: number; north: number; east: number } | null {
-  if (points.length === 0) return null
-  let south = points[0][0]
-  let north = points[0][0]
-  let west = points[0][1]
-  let east = points[0][1]
-  for (const [lat, lon] of points) {
-    south = Math.min(south, lat)
-    north = Math.max(north, lat)
-    west = Math.min(west, lon)
-    east = Math.max(east, lon)
-  }
-  return {
-    south: south - paddingDeg,
-    west: west - paddingDeg,
-    north: north + paddingDeg,
-    east: east + paddingDeg,
-  }
 }
 
 function labelFromOsmTags(tags: Record<string, string>): string {
@@ -47,20 +26,55 @@ function labelFromOsmTags(tags: Record<string, string>): string {
   )
 }
 
-export async function fetchFuelPlacesInBounds(bounds: {
-  south: number
-  west: number
-  north: number
-  east: number
-}): Promise<FuelPlace[]> {
-  const { south, west, north, east } = bounds
+function parseOsmElements(
+  elements: {
+    type: string
+    id: number
+    lat?: number
+    lon?: number
+    center?: { lat: number; lon: number }
+    tags?: Record<string, string>
+  }[],
+): FuelPlace[] {
+  const byKey = new Map<string, FuelPlace>()
+  for (const el of elements) {
+    const lat = el.lat ?? el.center?.lat
+    const lon = el.lon ?? el.center?.lon
+    if (lat === undefined || lon === undefined) continue
+    const key = fuelPlaceKey(lat, lon)
+    if (byKey.has(key)) continue
+    const tags = el.tags ?? {}
+    byKey.set(key, {
+      id: `osm-${el.type}-${el.id}`,
+      name: labelFromOsmTags(tags),
+      lat,
+      lon,
+      source: 'osm',
+      brand: tags.brand,
+    })
+  }
+  return [...byKey.values()]
+}
+
+/** Fetch fuel stations within `radiusKm` of the route corridor. */
+export async function fetchFuelPlacesNearRoute(
+  route: LatLng[],
+  radiusKm = FUEL_CORRIDOR_KM,
+): Promise<FuelPlace[]> {
+  if (route.length < 2) return []
+
+  const samples = samplePointsAlongRoute(route)
+  const radiusM = Math.round(radiusKm * 1000)
+  const aroundClauses = samples
+    .map(([lat, lon]) => `node["amenity"="fuel"](around:${radiusM},${lat},${lon})`)
+    .join(';\n  ')
+
   const query = `
-[out:json][timeout:25];
+[out:json][timeout:45];
 (
-  node["amenity"="fuel"](${south},${west},${north},${east});
-  way["amenity"="fuel"](${south},${west},${north},${east});
+  ${aroundClauses};
 );
-out center 120;
+out body;
 `
 
   const res = await fetch('https://overpass-api.de/api/interpreter', {
@@ -81,25 +95,10 @@ out center 120;
     }[]
   }
 
-  const byKey = new Map<string, FuelPlace>()
-  for (const el of data.elements ?? []) {
-    const lat = el.lat ?? el.center?.lat
-    const lon = el.lon ?? el.center?.lon
-    if (lat === undefined || lon === undefined) continue
-    const key = fuelPlaceKey(lat, lon)
-    if (byKey.has(key)) continue
-    const tags = el.tags ?? {}
-    byKey.set(key, {
-      id: `osm-${el.type}-${el.id}`,
-      name: labelFromOsmTags(tags),
-      lat,
-      lon,
-      source: 'osm',
-      brand: tags.brand,
-    })
-  }
-
-  return [...byKey.values()]
+  const places = parseOsmElements(data.elements ?? [])
+  return places.filter(
+    (p) => distanceToRouteKm([p.lat, p.lon], route) <= radiusKm + 0.5,
+  )
 }
 
 export async function reverseFuelPlaceName(lat: number, lon: number): Promise<string> {

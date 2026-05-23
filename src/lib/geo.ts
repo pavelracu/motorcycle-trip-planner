@@ -38,3 +38,54 @@ export function pointAlongPath(path: LatLng[], fraction: number): LatLng {
   }
   return path[path.length - 1]
 }
+
+/** Shortest distance from a point to a route polyline (km). */
+export function distanceToRouteKm(point: LatLng, route: LatLng[]): number {
+  if (route.length === 0) return Number.POSITIVE_INFINITY
+  if (route.length === 1) return haversineKm(point, route[0])
+
+  let min = Number.POSITIVE_INFINITY
+  for (let i = 1; i < route.length; i++) {
+    min = Math.min(min, distancePointToSegmentKm(point, route[i - 1], route[i]))
+  }
+  return min
+}
+
+function distancePointToSegmentKm(p: LatLng, a: LatLng, b: LatLng): number {
+  const ax = a[0]
+  const ay = a[1]
+  const bx = b[0]
+  const by = b[1]
+  const px = p[0]
+  const py = p[1]
+  const dx = bx - ax
+  const dy = by - ay
+  if (dx === 0 && dy === 0) return haversineKm(p, a)
+
+  const t = Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / (dx * dx + dy * dy)))
+  const proj: LatLng = [ax + t * dx, ay + t * dy]
+  return haversineKm(p, proj)
+}
+
+/** Sample points along a route for corridor searches (e.g. fuel stations). */
+export function samplePointsAlongRoute(
+  route: LatLng[],
+  intervalKm = 20,
+  maxSamples = 35,
+): LatLng[] {
+  if (route.length === 0) return []
+  if (route.length === 1) return [route[0]]
+
+  let total = 0
+  for (let i = 1; i < route.length; i++) {
+    total += haversineKm(route[i - 1], route[i])
+  }
+  if (total < 0.01) return [route[0]]
+
+  const count = Math.min(maxSamples, Math.max(2, Math.ceil(total / intervalKm) + 1))
+  const samples: LatLng[] = []
+  for (let i = 0; i < count; i++) {
+    samples.push(pointAlongPath(route, count === 1 ? 0 : i / (count - 1)))
+  }
+  return samples
+}
