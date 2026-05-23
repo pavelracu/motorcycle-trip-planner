@@ -13,6 +13,14 @@ import {
   saveTripBundle,
   tripFingerprint,
 } from './lib/tripStorage'
+import {
+  adoptOsmFuelPlace,
+  addUserFuelPlace,
+  loadUserFuelPlaces,
+  removeUserFuelPlace,
+} from './lib/fuelPlaceStorage'
+import type { FuelPlace } from './lib/fuelPlaces'
+
 import type { MultiDayTripPlan, TripDayRoute, TripSettings } from './lib/types'
 
 const DEFAULT_SETTINGS: TripSettings = {
@@ -172,9 +180,13 @@ export default function App() {
   const [planning, setPlanning] = useState(false)
   const [error, setError] = useState('')
   const [isPending, startTransition] = useTransition()
+  const [showFuelLayer, setShowFuelLayer] = useState(false)
+  const [addFuelMode, setAddFuelMode] = useState(false)
+  const [userFuelPlaces, setUserFuelPlaces] = useState<FuelPlace[]>([])
 
   useEffect(() => {
     const cachedRoutes = initRouteCache()
+    setUserFuelPlaces(loadUserFuelPlaces())
     const saved = loadTripBundle()
     if (saved) {
       setDays(saved.days)
@@ -290,6 +302,21 @@ export default function App() {
   async function copy() {
     await navigator.clipboard.writeText(output)
     setStatus('Copied to clipboard')
+  }
+
+  function handleAddUserFuelPlace(place: Omit<FuelPlace, 'id' | 'source'>) {
+    setUserFuelPlaces((prev) => addUserFuelPlace(prev, place))
+    setAddFuelMode(false)
+    setStatus(`Added fuel stop: ${place.name}`)
+  }
+
+  function handleSaveOsmFuelPlace(place: FuelPlace) {
+    setUserFuelPlaces((prev) => adoptOsmFuelPlace(prev, place))
+    setStatus(`Saved fuel stop: ${place.name}`)
+  }
+
+  function handleRemoveFuelPlace(id: string) {
+    setUserFuelPlaces((prev) => removeUserFuelPlace(prev, id))
   }
 
   return (
@@ -408,10 +435,49 @@ export default function App() {
             </p>
           ) : null}
         </div>
+
+        {userFuelPlaces.length > 0 ? (
+          <section className="mb-4 rounded-xl border border-slate-700/80 bg-slate-900/60 p-4">
+            <h2 className="mb-2 text-sm font-medium text-white">My fuel stops</h2>
+            <ul className="space-y-2">
+              {userFuelPlaces.map((place) => (
+                <li
+                  key={place.id}
+                  className="flex items-start justify-between gap-2 rounded-lg bg-slate-800/60 px-2 py-1.5 text-xs"
+                >
+                  <span className="min-w-0 text-slate-300">
+                    <span className="font-medium text-green-300/90">{place.name}</span>
+                    {place.brand ? (
+                      <span className="block text-slate-500">{place.brand}</span>
+                    ) : null}
+                  </span>
+                  <button
+                    type="button"
+                    className="shrink-0 text-slate-500 hover:text-red-400"
+                    onClick={() => handleRemoveFuelPlace(place.id)}
+                    aria-label={`Remove ${place.name}`}
+                  >
+                    ×
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </section>
+        ) : null}
       </aside>
 
       <main className="min-w-0 flex-1">
-        <TripMap days={days} plan={plan} />
+        <TripMap
+          days={days}
+          plan={plan}
+          showFuelLayer={showFuelLayer}
+          addFuelMode={addFuelMode}
+          userFuelPlaces={userFuelPlaces}
+          onAddUserFuelPlace={handleAddUserFuelPlace}
+          onSaveOsmFuelPlace={handleSaveOsmFuelPlace}
+          onToggleFuelLayer={() => setShowFuelLayer((v) => !v)}
+          onToggleAddFuelMode={() => setAddFuelMode((v) => !v)}
+        />
       </main>
     </div>
   )

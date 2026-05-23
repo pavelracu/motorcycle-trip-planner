@@ -12,6 +12,8 @@ import { formatDistance, formatTime } from '../lib/format'
 import { DAY_ROUTE_COLORS } from '../lib/multiDayPlanner'
 import type { LatLng } from '../lib/geo'
 import { MARKER_TYPE_LABELS } from '../lib/markerLabels'
+import FuelPlacesLayer from './FuelPlacesLayer'
+import type { FuelPlace } from '../lib/fuelPlaces'
 import type { MapMarker, MultiDayTripPlan, TripDayRoute } from '../lib/types'
 import 'leaflet/dist/leaflet.css'
 
@@ -65,19 +67,25 @@ function MarkerPopup({ marker }: { marker: MapMarker }) {
 
 function MapLegend({
   dayLines,
+  showFuelLayer,
 }: {
   dayLines: { label: string; color: string }[]
+  showFuelLayer: boolean
 }) {
   const items: { color: string; label: string }[] = [
     { color: '#22c55e', label: 'Departure' },
     { color: '#3b82f6', label: 'Major stop' },
-    { color: '#f59e0b', label: 'Fuel' },
+    { color: '#f59e0b', label: 'Planned fuel' },
     { color: '#eab308', label: 'Lunch' },
     { color: '#ec4899', label: 'Lunch & refuel' },
     { color: '#a855f7', label: 'Short break' },
     { color: '#64748b', label: 'Via' },
     { color: '#ef4444', label: 'Arrival' },
   ]
+  if (showFuelLayer) {
+    items.push({ color: '#94a3b8', label: 'Gas station (OSM)' })
+  }
+  items.push({ color: '#4ade80', label: 'My fuel stop' })
   return (
     <div className="absolute bottom-4 right-4 z-[1000] max-w-[220px] rounded-lg border border-slate-600/80 bg-slate-950/90 px-3 py-2 text-xs text-slate-300 shadow-lg backdrop-blur">
       {dayLines.length > 1 ? (
@@ -159,9 +167,23 @@ function previewMarkers(days: TripDayRoute[]): MapMarker[] {
 export default function TripMap({
   days,
   plan,
+  showFuelLayer,
+  addFuelMode,
+  userFuelPlaces,
+  onAddUserFuelPlace,
+  onSaveOsmFuelPlace,
+  onToggleFuelLayer,
+  onToggleAddFuelMode,
 }: {
   days: TripDayRoute[]
   plan: MultiDayTripPlan | null
+  showFuelLayer: boolean
+  addFuelMode: boolean
+  userFuelPlaces: FuelPlace[]
+  onAddUserFuelPlace: (place: Omit<FuelPlace, 'id' | 'source'>) => void
+  onSaveOsmFuelPlace: (place: FuelPlace) => void
+  onToggleFuelLayer: () => void
+  onToggleAddFuelMode: () => void
 }) {
   const routeLines = useMemo(() => {
     if (plan?.routeLines.length) return plan.routeLines
@@ -202,7 +224,36 @@ export default function TripMap({
   }
 
   return (
-    <div className="relative h-full w-full">
+    <div className={`relative h-full w-full${addFuelMode ? ' cursor-crosshair' : ''}`}>
+      <div className="absolute left-3 top-3 z-[1000] flex flex-wrap gap-2">
+        <button
+          type="button"
+          onClick={onToggleFuelLayer}
+          className={`rounded-lg border px-3 py-1.5 text-xs font-medium shadow-lg backdrop-blur ${
+            showFuelLayer
+              ? 'border-amber-500/60 bg-amber-500/20 text-amber-200'
+              : 'border-slate-600/80 bg-slate-950/90 text-slate-300'
+          }`}
+        >
+          Gas stations
+        </button>
+        <button
+          type="button"
+          onClick={onToggleAddFuelMode}
+          className={`rounded-lg border px-3 py-1.5 text-xs font-medium shadow-lg backdrop-blur ${
+            addFuelMode
+              ? 'border-green-500/60 bg-green-500/20 text-green-200'
+              : 'border-slate-600/80 bg-slate-950/90 text-slate-300'
+          }`}
+        >
+          {addFuelMode ? 'Cancel add' : 'Add fuel stop'}
+        </button>
+      </div>
+      {addFuelMode ? (
+        <p className="pointer-events-none absolute left-3 top-14 z-[1000] rounded bg-amber-500/90 px-2 py-1 text-xs font-medium text-slate-950">
+          Click the map to add a fuel stop
+        </p>
+      ) : null}
       <MapContainer
         center={center}
         zoom={8}
@@ -247,9 +298,18 @@ export default function TripMap({
             </CircleMarker>
           )
         })}
+        <FuelPlacesLayer
+          routePoints={fitPoints}
+          enabled={showFuelLayer}
+          addMode={addFuelMode}
+          userPlaces={userFuelPlaces}
+          onAddUserPlace={onAddUserFuelPlace}
+          onSaveOsmPlace={onSaveOsmFuelPlace}
+        />
       </MapContainer>
       <MapLegend
         dayLines={routeLines.map((r) => ({ label: r.label, color: r.color }))}
+        showFuelLayer={showFuelLayer}
       />
     </div>
   )
