@@ -1,3 +1,8 @@
+import {
+  hydrateRouteCacheFromStorage,
+  loadPersistedRouteLeg,
+  persistRouteLeg,
+} from './routeCacheStorage'
 import { haversineKm, type LatLng } from './geo'
 import type { Waypoint } from './types'
 
@@ -15,6 +20,10 @@ function routeKey(a: { lat: number; lon: number }, b: { lat: number; lon: number
 
 export function clearRouteCache(): void {
   routeCache.clear()
+}
+
+export function initRouteCache(): number {
+  return hydrateRouteCacheFromStorage(routeCache)
 }
 
 function fallbackLeg(a: Waypoint, b: Waypoint): RouteLeg {
@@ -70,7 +79,17 @@ export function fetchRouteLeg(a: Waypoint, b: Waypoint): Promise<RouteLeg> {
   const cached = routeCache.get(key)
   if (cached) return cached
 
-  const promise = fetchRouteLegUncached(a, b)
+  const persisted = loadPersistedRouteLeg(key)
+  if (persisted) {
+    const promise = Promise.resolve(persisted)
+    routeCache.set(key, promise)
+    return promise
+  }
+
+  const promise = fetchRouteLegUncached(a, b).then((leg) => {
+    persistRouteLeg(key, leg)
+    return leg
+  })
   routeCache.set(key, promise)
   return promise
 }

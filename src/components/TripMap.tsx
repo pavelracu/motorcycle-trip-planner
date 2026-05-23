@@ -51,8 +51,11 @@ function MarkerPopup({ marker }: { marker: MapMarker }) {
       {marker.time ? (
         <p className="mt-1 text-slate-500">Arrival {formatTime(marker.time)}</p>
       ) : null}
+      {marker.kmFromStart !== undefined ? (
+        <p className="text-slate-600">{formatDistance(marker.kmFromStart)}</p>
+      ) : null}
       {marker.kmSinceLastFuel !== undefined ? (
-        <p className="mt-1 text-slate-600">
+        <p className="text-slate-500">
           {formatDistance(marker.kmSinceLastFuel)} since last fill
         </p>
       ) : null}

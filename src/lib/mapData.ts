@@ -6,6 +6,13 @@ function posKey(lat: number, lon: number): string {
   return `${lat.toFixed(5)},${lon.toFixed(5)}`
 }
 
+const BREAK_KINDS = new Set<MapMarker['kind']>([
+  'fuel',
+  'lunch',
+  'lunch-refuel',
+  'short',
+])
+
 function upsertMarker(map: Map<string, MapMarker>, marker: MapMarker): void {
   const key = posKey(marker.lat, marker.lon)
   const existing = map.get(key)
@@ -16,15 +23,30 @@ function upsertMarker(map: Map<string, MapMarker>, marker: MapMarker): void {
   if (marker.time && (!existing.time || marker.time < existing.time)) {
     existing.time = marker.time
   }
-  if (
-    marker.kind === 'fuel' ||
-    marker.kind === 'lunch' ||
-    marker.kind === 'lunch-refuel' ||
-    marker.kind === 'short'
-  ) {
+  if (marker.kmFromStart !== undefined) {
+    existing.kmFromStart = marker.kmFromStart
+  }
+  if (BREAK_KINDS.has(marker.kind)) {
     existing.kind = marker.kind
     existing.typeLabel = marker.typeLabel
+    existing.label = marker.label
+    if (marker.kmSinceLastFuel !== undefined) {
+      existing.kmSinceLastFuel = marker.kmSinceLastFuel
+    }
   }
+}
+
+function markerKindForStop(
+  index: number,
+  stopCount: number,
+  waypoint: Waypoint,
+  isMajor: boolean,
+): MapMarker['kind'] {
+  if (index === 0) return 'start'
+  if (index === stopCount - 1) return 'end'
+  if (waypoint.role === 'via') return 'via'
+  if (isMajor) return 'major'
+  return 'pin'
 }
 
 export function buildPreviewLine(waypoints: Waypoint[]): LatLng[] {
@@ -32,7 +54,7 @@ export function buildPreviewLine(waypoints: Waypoint[]): LatLng[] {
 }
 
 export function buildMapMarkers(
-  waypoints: Waypoint[],
+  _waypoints: Waypoint[],
   stops: StopEvent[],
   segments: TripPlan['segments'],
   allBreaks: BreakEvent[],
@@ -42,72 +64,20 @@ export function buildMapMarkers(
     segments.map((s) => posKey(s.to.waypoint.lat, s.to.waypoint.lon)),
   )
 
-  if (stops.length > 0) {
-    const start = stops[0]
-    upsertMarker(byPos, {
-      lat: start.waypoint.lat,
-      lon: start.waypoint.lon,
-      kind: 'start',
-      label: start.waypoint.displayName,
-      typeLabel: MARKER_TYPE_LABELS.start,
-      time: start.time,
-    })
-  }
-
-  for (let i = 0; i < waypoints.length; i++) {
-    const w = waypoints[i]
+  for (let i = 0; i < stops.length; i++) {
+    const stop = stops[i]
+    const w = stop.waypoint
     const key = posKey(w.lat, w.lon)
-    if (i === 0 || i === waypoints.length - 1) continue
+    const kind = markerKindForStop(i, stops.length, w, majorIds.has(key))
 
-    if (w.role === 'via') {
-      upsertMarker(byPos, {
-        lat: w.lat,
-        lon: w.lon,
-        kind: 'via',
-        label: w.displayName,
-        typeLabel: MARKER_TYPE_LABELS.via,
-      })
-    } else if (!majorIds.has(key)) {
-      upsertMarker(byPos, {
-        lat: w.lat,
-        lon: w.lon,
-        kind: 'pin',
-        label: w.displayName,
-        typeLabel: MARKER_TYPE_LABELS.pin,
-      })
-    }
-  }
-
-  const startKey =
-    stops.length > 0 ? posKey(stops[0].waypoint.lat, stops[0].waypoint.lon) : ''
-  const endKey =
-    stops.length > 1
-      ? posKey(stops[stops.length - 1].waypoint.lat, stops[stops.length - 1].waypoint.lon)
-      : ''
-
-  for (const seg of segments) {
-    const w = seg.to.waypoint
-    const key = posKey(w.lat, w.lon)
-    if (key === startKey || key === endKey) continue
     upsertMarker(byPos, {
       lat: w.lat,
       lon: w.lon,
-      kind: 'major',
+      kind,
       label: w.displayName,
-      typeLabel: MARKER_TYPE_LABELS.major,
-      time: seg.to.time,
-    })
-  }
-
-  if (stops.length > 1) {
-    const end = stops[stops.length - 1]
-    upsertMarker(byPos, {
-      lat: end.waypoint.lat,
-      lon: end.waypoint.lon,
-      kind: 'end',
-      label: end.waypoint.displayName,
-      typeLabel: MARKER_TYPE_LABELS.end,
-      time: end.time,
+      typeLabel: MARKER_TYPE_LABELS[kind],
+      time: stop.time,
+      kmFromStart: stop.kmFromStart,
     })
   }
 
@@ -120,6 +90,7 @@ export function buildMapMarkers(
       label: MARKER_TYPE_LABELS[b.kind],
       typeLabel: MARKER_TYPE_LABELS[b.kind],
       time: b.time,
+      kmFromStart: b.kmFromStart,
       ...(isFill && b.kmSinceLastFuel !== undefined
         ? { kmSinceLastFuel: b.kmSinceLastFuel }
         : {}),

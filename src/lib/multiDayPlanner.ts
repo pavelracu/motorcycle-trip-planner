@@ -111,6 +111,9 @@ function mergeDayMarkers(dayPlans: DayPlan[]): MapMarker[] {
       if (merged.time && (!existing.time || merged.time < existing.time)) {
         existing.time = merged.time
       }
+      if (merged.kmFromStart !== undefined) {
+        existing.kmFromStart = merged.kmFromStart
+      }
       if (merged.dayLabel && existing.dayLabel !== merged.dayLabel) {
         existing.dayLabel = `${existing.dayLabel} · ${merged.dayLabel}`
       }

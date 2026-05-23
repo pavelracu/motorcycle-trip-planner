@@ -1,10 +1,18 @@
-import { memo, useState, useTransition } from 'react'
+import { memo, useEffect, useState, useTransition } from 'react'
 import TripMap from './components/TripMap'
 import { labelFromFileName } from './lib/dayRouteLabel'
 import { multiDayPlanToText } from './lib/exportText'
 import { parseRouteFile } from './lib/parseRouteFile'
-import { clearRouteCache } from './lib/routing'
+import { initRouteCache } from './lib/routing'
 import { buildMultiDayTripPlan } from './lib/multiDayPlanner'
+import {
+  clearSavedTrip,
+  formatSavedAt,
+  loadCachedPlan,
+  loadTripBundle,
+  saveTripBundle,
+  tripFingerprint,
+} from './lib/tripStorage'
 import type { MultiDayTripPlan, TripDayRoute, TripSettings } from './lib/types'
 
 const DEFAULT_SETTINGS: TripSettings = {
@@ -165,6 +173,22 @@ export default function App() {
   const [error, setError] = useState('')
   const [isPending, startTransition] = useTransition()
 
+  useEffect(() => {
+    const cachedRoutes = initRouteCache()
+    const saved = loadTripBundle()
+    if (saved) {
+      setDays(saved.days)
+      setSettings(saved.settings)
+      setPlan(saved.plan)
+      setOutput(saved.output)
+      setStatus(
+        `Restored trip saved ${formatSavedAt(saved.savedAt)}${cachedRoutes > 0 ? ` · ${cachedRoutes} cached routes` : ''}`,
+      )
+    } else if (cachedRoutes > 0) {
+      setStatus(`${cachedRoutes} cached route legs ready`)
+    }
+  }, [])
+
   const busy = planning || isPending
   const totalWaypoints = days.reduce((n, d) => n + d.waypoints.length, 0)
 
@@ -182,8 +206,8 @@ export default function App() {
   async function onFiles(fileList: FileList | null) {
     if (!fileList?.length) return
     setError('')
-    clearRouteCache()
     setPlan(null)
+    setOutput('')
 
     const newDays: TripDayRoute[] = []
     const startIndex = days.length
@@ -221,7 +245,7 @@ export default function App() {
     setPlan(null)
     setOutput('')
     setStatus('')
-    clearRouteCache()
+    clearSavedTrip()
   }
 
   async function generate() {
@@ -236,11 +260,25 @@ export default function App() {
     setPlanning(true)
     setError('')
     try {
+      const fingerprint = tripFingerprint(days, settings)
+      const cached = loadCachedPlan(fingerprint)
+      if (cached) {
+        const text = multiDayPlanToText(cached)
+        startTransition(() => {
+          setPlan(cached)
+          setOutput(text)
+          setStatus('Loaded saved plan — no recalculation needed')
+        })
+        return
+      }
+
       const trip = await buildMultiDayTripPlan(days, settings, reportProgress)
+      const text = multiDayPlanToText(trip)
+      saveTripBundle(fingerprint, days, settings, trip, text)
       startTransition(() => {
         setPlan(trip)
-        setOutput(multiDayPlanToText(trip))
-        setStatus('Done')
+        setOutput(text)
+        setStatus('Done — saved locally for next visit')
       })
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Planning failed')
@@ -278,10 +316,8 @@ export default function App() {
               }}
             />
             <p className="mt-2 text-xs text-slate-500">
-              Upload one GPX/KML per riding day (e.g. day1.gpx … day5.gpx). Export
-              from Google My Maps. Use{' '}
-              <code className="text-amber-300/90">[via]</code> /{' '}
-              <code className="text-amber-300/90">[stop]</code> on pin names.
+              Upload one GPX/KML per riding day (e.g. day1.gpx … day5.gpx). Plans and
+              routes are saved in this browser automatically.
             </p>
             {days.length > 0 ? (
               <ul className="mt-3 space-y-2">
