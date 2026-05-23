@@ -1,11 +1,12 @@
 import { memo, useState, useTransition } from 'react'
+import TripMap from './components/TripMap'
 import { applyAutoVia } from './lib/consolidateWaypoints'
 import { enrichWaypointsWithLocality } from './lib/locality'
 import { planToText } from './lib/exportText'
 import { parseRouteFile } from './lib/parseRouteFile'
 import { clearRouteCache } from './lib/routing'
 import { buildTripPlan } from './lib/tripPlanner'
-import type { TripSettings, Waypoint } from './lib/types'
+import type { TripPlan, TripSettings, Waypoint } from './lib/types'
 
 const DEFAULT_SETTINGS: TripSettings = {
   departureIso: '2026-05-25T06:00:00',
@@ -16,6 +17,8 @@ const DEFAULT_SETTINGS: TripSettings = {
   longBreakDurationMinutes: 60,
   autoViaMaxLegKm: 50,
   majorStopMinKm: 60,
+  restToleranceMinutes: 45,
+  lunchRefuelMinTankUsed: 0.5,
 }
 
 const TripSettingsForm = memo(function TripSettingsForm({
@@ -26,9 +29,9 @@ const TripSettingsForm = memo(function TripSettingsForm({
   onChange: <K extends keyof TripSettings>(key: K, value: TripSettings[K]) => void
 }) {
   return (
-    <section className="mb-6 rounded-xl border border-slate-700/80 bg-slate-900/60 p-5">
-      <h2 className="mb-4 text-lg font-medium text-white">2. Trip settings</h2>
-      <div className="grid gap-4 sm:grid-cols-2">
+    <section className="mb-4 rounded-xl border border-slate-700/80 bg-slate-900/60 p-4">
+      <h2 className="mb-3 text-sm font-medium text-white">Trip settings</h2>
+      <div className="grid gap-3">
         <label className="block text-sm">
           <span className="text-slate-400">Departure</span>
           <input
@@ -98,9 +101,7 @@ const TripSettingsForm = memo(function TripSettingsForm({
           />
         </label>
         <label className="block text-sm">
-          <span className="text-slate-400">
-            Auto-via legs shorter than (km)
-          </span>
+          <span className="text-slate-400">Auto-via legs shorter than (km)</span>
           <input
             type="number"
             min={0}
@@ -111,9 +112,7 @@ const TripSettingsForm = memo(function TripSettingsForm({
           />
         </label>
         <label className="block text-sm">
-          <span className="text-slate-400">
-            Major stop every (km) — 0 shows all
-          </span>
+          <span className="text-slate-400">Major stop every (km) — 0 shows all</span>
           <input
             type="number"
             min={0}
@@ -121,6 +120,21 @@ const TripSettingsForm = memo(function TripSettingsForm({
             className="mt-1 w-full rounded-lg border border-slate-600 bg-slate-800 px-3 py-2 text-white"
             value={settings.majorStopMinKm}
             onChange={(e) => onChange('majorStopMinKm', Number(e.target.value))}
+          />
+        </label>
+        <label className="block text-sm">
+          <span className="text-slate-400">
+            Rest tolerance (min) — push to fuel / lunch
+          </span>
+          <input
+            type="number"
+            min={0}
+            max={120}
+            className="mt-1 w-full rounded-lg border border-slate-600 bg-slate-800 px-3 py-2 text-white"
+            value={settings.restToleranceMinutes}
+            onChange={(e) =>
+              onChange('restToleranceMinutes', Number(e.target.value))
+            }
           />
         </label>
       </div>
@@ -131,6 +145,7 @@ const TripSettingsForm = memo(function TripSettingsForm({
 export default function App() {
   const [waypoints, setWaypoints] = useState<Waypoint[]>([])
   const [settings, setSettings] = useState<TripSettings>(DEFAULT_SETTINGS)
+  const [plan, setPlan] = useState<TripPlan | null>(null)
   const [output, setOutput] = useState('')
   const [status, setStatus] = useState('')
   const [planning, setPlanning] = useState(false)
@@ -153,6 +168,7 @@ export default function App() {
   async function onFile(file: File) {
     setError('')
     clearRouteCache()
+    setPlan(null)
     try {
       const xml = await file.text()
       const wps = parseRouteFile(xml, file.name)
@@ -180,10 +196,11 @@ export default function App() {
         settings.autoViaMaxLegKm,
         reportProgress,
       )
-      const plan = await buildTripPlan(routed, settings, reportProgress)
+      const trip = await buildTripPlan(routed, settings, reportProgress)
       startTransition(() => {
         setWaypoints(routed)
-        setOutput(planToText(plan))
+        setPlan(trip)
+        setOutput(planToText(trip))
         setStatus('Done')
       })
     } catch (e) {
@@ -199,104 +216,83 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-svh bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950">
-      <div className="mx-auto max-w-3xl px-4 py-10">
-        <header className="mb-8">
-          <p className="text-sm font-medium uppercase tracking-widest text-amber-400/90">
+    <div className="flex h-svh overflow-hidden bg-slate-950">
+      <aside className="flex w-[min(100%,420px)] shrink-0 flex-col border-r border-slate-800">
+        <div className="shrink-0 border-b border-slate-800 px-4 py-4">
+          <p className="text-xs font-medium uppercase tracking-widest text-amber-400/90">
             Motorcycle trip planner
           </p>
-          <h1 className="mt-2 text-3xl font-semibold text-white">
-            GPX → timed itinerary with weather
-          </h1>
-          <p className="mt-3 text-slate-400">
-            Upload waypoints from Google My Maps (GPX). Plans riding time via
-            OSRM, fuel stops at {settings.tankRangeKm} km, 15 min every 2h, lunch
-            every 4h.
-          </p>
-        </header>
-
-        <section className="mb-6 rounded-xl border border-slate-700/80 bg-slate-900/60 p-5">
-          <h2 className="mb-3 text-lg font-medium text-white">1. Route file (GPX or KML)</h2>
-          <input
-            type="file"
-            accept=".gpx,.kml,application/gpx+xml,application/vnd.google-earth.kml+xml"
-            className="block w-full text-sm text-slate-300 file:mr-4 file:rounded-lg file:border-0 file:bg-amber-500 file:px-4 file:py-2 file:font-medium file:text-slate-950 hover:file:bg-amber-400"
-            onChange={(e) => {
-              const f = e.target.files?.[0]
-              if (f) void onFile(f)
-            }}
-          />
-          <p className="mt-3 text-xs text-slate-500">
-            In Google My Maps: layer ⋮ → Export to KML/KMZ → download the .kml
-            and upload it here. Prefix pin names with{' '}
-            <code className="text-amber-300/90">[via]</code> to shape the route
-            without a stop, or <code className="text-amber-300/90">[stop]</code>{' '}
-            to force a stop. The itinerary shows major stops only (fuel, lunch,
-            short breaks, and every {settings.majorStopMinKm} km).
-          </p>
-          {waypoints.length > 0 && (
-            <ol className="mt-4 max-h-40 list-decimal overflow-y-auto pl-5 [content-visibility:auto]">
-              {waypoints.map((w, i) => (
-                <li
-                  key={`${w.lat}-${w.lon}-${i}`}
-                  className="text-sm text-slate-300"
-                >
-                  {i + 1}. {w.displayName}
-                  {w.role === 'via' && (
-                    <span className="ml-2 text-xs text-slate-500">
-                      (via — hidden in itinerary)
-                    </span>
-                  )}
-                </li>
-              ))}
-            </ol>
-          )}
-        </section>
-
-        <TripSettingsForm settings={settings} onChange={updateSetting} />
-
-        <div className="mb-6 flex flex-wrap gap-3">
-          <button
-            type="button"
-            disabled={busy || waypoints.length < 2}
-            onClick={() => void generate()}
-            className="rounded-lg bg-amber-500 px-5 py-2.5 font-medium text-slate-950 disabled:opacity-40"
-          >
-            {busy ? 'Planning…' : 'Generate trip plan'}
-          </button>
-          {output ? (
-            <button
-              type="button"
-              onClick={() => void copy()}
-              className="rounded-lg border border-slate-600 px-5 py-2.5 text-slate-200"
-            >
-              Copy output
-            </button>
-          ) : null}
+          <h1 className="mt-1 text-lg font-semibold text-white">Route & itinerary</h1>
         </div>
 
-        {error ? (
-          <p className="mb-4 rounded-lg bg-red-950/50 px-4 py-3 text-sm text-red-300">
-            {error}
-          </p>
-        ) : null}
-        {status && !error ? (
-          <p className="mb-4 text-sm text-slate-500">{status}</p>
-        ) : null}
-
-        {output ? (
-          <section className="rounded-xl border border-slate-700/80 bg-black/40 p-5">
-            <h2 className="mb-3 text-lg font-medium text-white">Itinerary</h2>
-            <pre className="whitespace-pre-wrap font-mono text-sm leading-relaxed text-amber-100/95">
-              {output}
-            </pre>
-            <p className="mt-4 text-center text-xs text-slate-600">
-              Arrival times are when you reach each stop; breaks after show fuel,
-              short stops, and lunch. Weather from Open-Meteo for the arrival hour.
+        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
+          <section className="mb-4 rounded-xl border border-slate-700/80 bg-slate-900/60 p-4">
+            <h2 className="mb-2 text-sm font-medium text-white">Route file</h2>
+            <input
+              type="file"
+              accept=".gpx,.kml,application/gpx+xml,application/vnd.google-earth.kml+xml"
+              className="block w-full text-sm text-slate-300 file:mr-3 file:rounded-lg file:border-0 file:bg-amber-500 file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-slate-950 hover:file:bg-amber-400"
+              onChange={(e) => {
+                const f = e.target.files?.[0]
+                if (f) void onFile(f)
+              }}
+            />
+            <p className="mt-2 text-xs text-slate-500">
+              Export KML from Google My Maps. Use <code className="text-amber-300/90">[via]</code>{' '}
+              / <code className="text-amber-300/90">[stop]</code> on pin names to override.
             </p>
+            {waypoints.length > 0 ? (
+              <p className="mt-2 text-xs text-slate-400">
+                {waypoints.length} waypoints loaded
+              </p>
+            ) : null}
           </section>
-        ) : null}
-      </div>
+
+          <TripSettingsForm settings={settings} onChange={updateSetting} />
+
+          <div className="mb-4 flex flex-wrap gap-2">
+            <button
+              type="button"
+              disabled={busy || waypoints.length < 2}
+              onClick={() => void generate()}
+              className="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-slate-950 disabled:opacity-40"
+            >
+              {busy ? 'Planning…' : 'Generate plan'}
+            </button>
+            {output ? (
+              <button
+                type="button"
+                onClick={() => void copy()}
+                className="rounded-lg border border-slate-600 px-4 py-2 text-sm text-slate-200"
+              >
+                Copy
+              </button>
+            ) : null}
+          </div>
+
+          {error ? (
+            <p className="mb-3 rounded-lg bg-red-950/50 px-3 py-2 text-sm text-red-300">
+              {error}
+            </p>
+          ) : null}
+          {status && !error ? (
+            <p className="mb-3 text-xs text-slate-500">{status}</p>
+          ) : null}
+
+          {output ? (
+            <section className="rounded-xl border border-slate-700/80 bg-black/40 p-3">
+              <h2 className="mb-2 text-sm font-medium text-white">Itinerary</h2>
+              <pre className="max-h-64 overflow-y-auto whitespace-pre-wrap font-mono text-xs leading-relaxed text-amber-100/95">
+                {output}
+              </pre>
+            </section>
+          ) : null}
+        </div>
+      </aside>
+
+      <main className="min-w-0 flex-1">
+        <TripMap waypoints={waypoints} plan={plan} />
+      </main>
     </div>
   )
 }

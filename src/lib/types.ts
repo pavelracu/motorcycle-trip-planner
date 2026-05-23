@@ -17,8 +17,11 @@ export interface TripSettings {
   longBreakEveryMinutes: number
   longBreakDurationMinutes: number
   autoViaMaxLegKm: number
-  /** Itinerary only lists stops at least this many km apart (plus fuel/lunch/short/[stop]). 0 = all stops. */
   majorStopMinKm: number
+  /** Lookahead: defer short break if fuel or lunch is within this many riding minutes. */
+  restToleranceMinutes: number
+  /** Lunch also refuels when tank is at least this fraction used (0.5 = half empty). */
+  lunchRefuelMinTankUsed: number
 }
 
 export interface WeatherAtStop {
@@ -32,12 +35,37 @@ export interface StopEvent {
   weather?: WeatherAtStop
 }
 
-export type BreakKind = 'fuel' | 'short' | 'lunch'
+export type BreakKind = 'fuel' | 'short' | 'lunch' | 'lunch-refuel'
 
 export interface BreakEvent {
   time: Date
   kind: BreakKind
   durationMinutes: number
+  lat: number
+  lon: number
+  /** Riding distance since the previous fill when this break was taken. */
+  kmSinceLastFuel?: number
+}
+
+export type MapMarkerKind =
+  | 'start'
+  | 'end'
+  | 'via'
+  | 'pin'
+  | 'major'
+  | 'fuel'
+  | 'short'
+  | 'lunch'
+  | 'lunch-refuel'
+
+export interface MapMarker {
+  lat: number
+  lon: number
+  kind: MapMarkerKind
+  label: string
+  typeLabel: string
+  time?: Date
+  kmSinceLastFuel?: number
 }
 
 export interface RouteLegStats {
@@ -63,9 +91,12 @@ export interface TripSummary {
   fuelStops: number
   shortBreaks: number
   lunchBreaks: number
+  lunchRefuelStops: number
 }
 
 export interface TripPlan {
   segments: ItinerarySegment[]
   summary: TripSummary
+  routeLine: [number, number][]
+  markers: MapMarker[]
 }

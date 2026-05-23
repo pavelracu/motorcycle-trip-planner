@@ -1,0 +1,20 @@
+---
+description: >-
+  UI/UX agent mode — spacing, typography, motion, visual polish on
+  paper-and-ink. Use for "UI agent", "UX agent", polish layout, or
+  @ui-ux-agent-mode. Does not change product scope.
+alwaysApply: false
+---
+
+# UI/UX agent mode
+
+When this rule applies (user @-mentions it or says **UI agent** / **UX agent** / **As UX**):
+
+1. Follow project skill **`ui-ux-agent`** (`.cursor/skills/ui-ux-agent/SKILL.md`).
+2. Apply the **Three Principles** verbatim (Space Over Chrome; Typography Does the Work; Motion Is the Personality).
+3. Apply **UI composition** from the skill (zones, one-home-per-fact, header bands, column alignment) on multi-surface layouts.
+4. Implement with **`docs/tokens.md`** and **`src/index.css`** — no ad-hoc design tokens.
+5. Run **`bun run check`** after `src/` edits; use **`cursor-ide-browser`** on port **5176** when layout or motion changed.
+6. For new product behavior or scope, stop and point to **`product-manager-mode`** / **Coding agent**.
+
+Full agent roster: `AGENTS.md`.

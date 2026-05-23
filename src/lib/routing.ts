@@ -1,8 +1,10 @@
+import { haversineKm, type LatLng } from './geo'
 import type { Waypoint } from './types'
 
 export interface RouteLeg {
   distanceKm: number
   durationMinutes: number
+  path: LatLng[]
 }
 
 const routeCache = new Map<string, Promise<RouteLeg>>()
@@ -15,39 +17,48 @@ export function clearRouteCache(): void {
   routeCache.clear()
 }
 
-function haversineKm(a: Waypoint, b: Waypoint): number {
-  const R = 6371
-  const dLat = ((b.lat - a.lat) * Math.PI) / 180
-  const dLon = ((b.lon - a.lon) * Math.PI) / 180
-  const lat1 = (a.lat * Math.PI) / 180
-  const lat2 = (b.lat * Math.PI) / 180
-  const x =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2
-  return R * 2 * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x))
+function fallbackLeg(a: Waypoint, b: Waypoint): RouteLeg {
+  const path: LatLng[] = [
+    [a.lat, a.lon],
+    [b.lat, b.lon],
+  ]
+  const distanceKm = haversineKm(path[0], path[1]) * 1.25
+  const durationMinutes = (distanceKm / 75) * 60
+  return { distanceKm, durationMinutes, path }
 }
 
-function fallbackLeg(a: Waypoint, b: Waypoint): RouteLeg {
-  const distanceKm = haversineKm(a, b) * 1.25
-  const durationMinutes = (distanceKm / 75) * 60
-  return { distanceKm, durationMinutes }
+function decodeGeoJsonLine(
+  coordinates: [number, number][],
+): LatLng[] {
+  return coordinates.map(([lon, lat]) => [lat, lon])
 }
 
 async function fetchRouteLegUncached(a: Waypoint, b: Waypoint): Promise<RouteLeg> {
   const coords = `${a.lon},${a.lat};${b.lon},${b.lat}`
-  const url = `https://router.project-osrm.org/route/v1/driving/${coords}?overview=false`
+  const url = `https://router.project-osrm.org/route/v1/driving/${coords}?overview=full&geometries=geojson`
 
   try {
     const res = await fetch(url)
     if (!res.ok) return fallbackLeg(a, b)
     const data = (await res.json()) as {
-      routes?: { distance: number; duration: number }[]
+      routes?: {
+        distance: number
+        duration: number
+        geometry?: { coordinates: [number, number][] }
+      }[]
     }
     const route = data.routes?.[0]
     if (!route) return fallbackLeg(a, b)
+    const path = route.geometry?.coordinates?.length
+      ? decodeGeoJsonLine(route.geometry.coordinates)
+      : ([
+          [a.lat, a.lon],
+          [b.lat, b.lon],
+        ] satisfies LatLng[])
     return {
       distanceKm: route.distance / 1000,
       durationMinutes: route.duration / 60,
+      path,
     }
   } catch {
     return fallbackLeg(a, b)

@@ -1,0 +1,18 @@
+---
+description: >-
+  Coding agent mode — implement from PM handoff with quality phases, skill/MCP
+  routing, and deslop. Use for "Coding agent", "Implement handoff", or
+  @coding-agent-mode.
+alwaysApply: false
+---
+
+# Coding agent mode
+
+When this rule applies (user @-mentions it or says **Coding agent** / **Implement handoff** / **Build from handoff**):
+
+1. Follow project skill **`coding-agent`** (`.cursor/skills/coding-agent/SKILL.md`).
+2. Read `.agents/handoffs/LATEST.md` before editing code.
+3. Run workflow: implement → `bun run check` (+ tests if needed) → **deslop** → optional verify/browser.
+4. Route to assistant-ui, PostHog, and cursor-team-kit skills per the routing table in the skill — do not invent parallel conventions.
+
+For PM specs only, use **`product-manager-mode`**. Full roster: `AGENTS.md`.

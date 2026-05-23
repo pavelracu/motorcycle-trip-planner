@@ -1,0 +1,16 @@
+---
+description: >-
+  Coding agent mode — implement from latest PM handoff. Use for "Implement
+  handoff" or "Coding agent".
+alwaysApply: false
+---
+
+# Implement from handoff mode
+
+When this rule applies (user @-mentions it or says **Implement handoff** / **Coding agent**):
+
+1. Follow project skill **`coding-agent`** (`.cursor/skills/coding-agent/SKILL.md`) — includes handoff rules from **`implement-from-handoff`**.
+2. Read `.agents/handoffs/LATEST.md` before editing code.
+3. Implement only what the handoff specifies; respect out-of-scope and acceptance criteria; run deslop after iteration 1.
+
+Prefer **`@coding-agent-mode`** for the same behavior. For full agent roster, see `AGENTS.md`.

@@ -19,7 +19,9 @@ function mergeSegments(a: ItinerarySegment, b: ItinerarySegment): ItinerarySegme
 }
 
 function hasPostArrivalBreak(breaks: BreakEvent[]): boolean {
-  return breaks.some((b) => b.kind === 'short' || b.kind === 'lunch')
+  return breaks.some(
+    (b) => b.kind === 'short' || b.kind === 'lunch' || b.kind === 'lunch-refuel',
+  )
 }
 
 function endsMajorSegment(

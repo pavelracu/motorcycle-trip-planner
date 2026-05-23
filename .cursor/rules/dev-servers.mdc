@@ -1,0 +1,28 @@
+---
+description: Keep worktree dev servers running on dedicated ports; never stop only the frontend.
+alwaysApply: true
+---
+
+# Dev servers (hsy2 worktree)
+
+This worktree uses **non-default ports** so it can run beside the main checkout:
+
+| Service  | URL |
+|----------|-----|
+| Frontend | http://localhost:5176 |
+| Backend  | http://localhost:5183 |
+
+## Start (both FE + BE)
+
+```bash
+bun run dev:worktree
+```
+
+Ports come from `.env.worktree`. Do **not** run plain `bun run dev` here — that collides with the main app on 5173/5181.
+
+## Agent rules
+
+- **Keep both processes running** after starting dev. Do not stop Vite alone to "restart" or debug — restart the full `dev:worktree` if needed.
+- Do **not** use `concurrently --kill-others-on-fail` for this worktree; a backend error must not kill the frontend.
+- Before claiming the app is ready to test, confirm both ports respond (`5176` and `5183`).
+- If dependencies are missing, run `bun install` first, then `bun run dev:worktree` in the background.
