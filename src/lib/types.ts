@@ -37,6 +37,8 @@ export interface StopEvent {
   weather?: WeatherAtStop
   /** Cumulative riding distance from the start of this day. */
   kmFromStart?: number
+  /** Cumulative riding minutes from the start of this day (excludes break time). */
+  ridingMinutesFromStart?: number
 }
 
 export type BreakKind = 'fuel' | 'short' | 'lunch' | 'lunch-refuel'
@@ -51,6 +53,11 @@ export interface BreakEvent {
   kmSinceLastFuel?: number
   /** Cumulative riding distance from the start of this day. */
   kmFromStart?: number
+  /** Cumulative riding minutes from the start of this day (excludes break time). */
+  ridingMinutesFromStart?: number
+  /** Reverse-geocoded place name near the break. */
+  placeName?: string
+  weather?: WeatherAtStop
 }
 
 export type MapMarkerKind =

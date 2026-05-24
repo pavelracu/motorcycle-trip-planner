@@ -1,5 +1,13 @@
 import { formatDate, formatDistance, formatDuration, formatTime } from './format'
-import type { BreakEvent, DayPlan, MultiDayTripPlan, TripPlan, Waypoint } from './types'
+import type {
+  BreakEvent,
+  DayPlan,
+  MultiDayTripPlan,
+  StopEvent,
+  TripPlan,
+  WeatherAtStop,
+  Waypoint,
+} from './types'
 
 function breakSuffix(b: BreakEvent): string {
   const labels: Record<BreakEvent['kind'], string> = {
@@ -15,24 +23,93 @@ function breakSuffix(b: BreakEvent): string {
   return `${labels[b.kind]} (+${formatDuration(b.durationMinutes)}${kmPart})`
 }
 
-function stopLine(
-  time: Date,
-  waypoint: Waypoint,
-  weather?: { tempC: number; description: string },
-): string {
-  const weatherPart = weather
+function weatherText(weather?: WeatherAtStop): string {
+  return weather
     ? `${weather.tempC}°C ${weather.description}`
     : 'weather unavailable'
-  return `${formatTime(time)}, ${waypoint.displayName}, ${weatherPart}`
 }
 
-function appendSegmentBreaks(lines: string[], breaks: BreakEvent[]): void {
+function rideStatsSuffix(km?: number, ridingMinutes?: number): string {
+  const parts: string[] = []
+  if (km !== undefined && km > 0) parts.push(formatDistance(km))
+  if (ridingMinutes !== undefined && ridingMinutes > 0) {
+    parts.push(`${formatDuration(ridingMinutes)} riding`)
+  }
+  return parts.length ? ` · ${parts.join(' · ')}` : ''
+}
+
+function samePlace(
+  a: { lat: number; lon: number },
+  b: { lat: number; lon: number },
+): boolean {
+  return Math.abs(a.lat - b.lat) < 0.0002 && Math.abs(a.lon - b.lon) < 0.0002
+}
+
+function placeLabel(b: BreakEvent): string {
+  return b.placeName ?? 'En route'
+}
+
+function formatBreakLine(b: BreakEvent, legRidingMinutes?: number): string {
+  const stats = rideStatsSuffix(b.kmFromStart, legRidingMinutes)
+  return `${formatTime(b.time)}, ${placeLabel(b)}, ${weatherText(b.weather)}, ${breakSuffix(b)}${stats}`
+}
+
+function formatStopLine(
+  stop: StopEvent,
+  atStopBreaks: BreakEvent[],
+  legRidingMinutes?: number,
+): string {
+  const breakPart =
+    atStopBreaks.length > 0
+      ? `, ${atStopBreaks.map(breakSuffix).join('; ')}`
+      : ''
+  const stats = rideStatsSuffix(stop.kmFromStart, legRidingMinutes)
+  return `${formatTime(stop.time)}, ${stop.waypoint.displayName}, ${weatherText(stop.weather)}${breakPart}${stats}`
+}
+
+function partitionBreaks(
+  breaks: BreakEvent[],
+  destination: Waypoint,
+): { midRoute: BreakEvent[]; atDestination: BreakEvent[] } {
+  const midRoute: BreakEvent[] = []
+  const atDestination: BreakEvent[] = []
+  for (const b of breaks) {
+    if (samePlace(b, destination)) atDestination.push(b)
+    else midRoute.push(b)
+  }
+  return { midRoute, atDestination }
+}
+
+function appendSegmentEvents(
+  lines: string[],
+  from: StopEvent,
+  breaks: BreakEvent[],
+  to: StopEvent,
+): void {
   const sorted = [...breaks].sort(
     (a, b) => a.time.getTime() - b.time.getTime(),
   )
-  for (const b of sorted) {
-    lines.push(`${formatTime(b.time)}, ${breakSuffix(b)}`)
+  const { midRoute, atDestination } = partitionBreaks(sorted, to.waypoint)
+
+  let prevRiding = from.ridingMinutesFromStart ?? 0
+
+  for (const b of midRoute) {
+    const legMin = Math.max(0, (b.ridingMinutesFromStart ?? prevRiding) - prevRiding)
+    lines.push(formatBreakLine(b, legMin > 0 ? legMin : undefined))
+    prevRiding = b.ridingMinutesFromStart ?? prevRiding
   }
+
+  const destLegMin = Math.max(
+    0,
+    (to.ridingMinutesFromStart ?? prevRiding) - prevRiding,
+  )
+  lines.push(
+    formatStopLine(
+      to,
+      atDestination,
+      destLegMin > 0 ? destLegMin : undefined,
+    ),
+  )
 }
 
 function appendSummaryLines(lines: string[], summary: TripPlan['summary']): void {
@@ -55,12 +132,11 @@ export function planToText(plan: TripPlan): string {
     const { from, to, leg } = plan.segments[i]
 
     if (i === 0) {
-      lines.push(stopLine(from.time, from.waypoint, from.weather))
+      lines.push(formatStopLine(from, [], undefined))
       lines.push('')
     }
 
-    appendSegmentBreaks(lines, leg.breaks)
-    lines.push(stopLine(to.time, to.waypoint, to.weather))
+    appendSegmentEvents(lines, from, leg.breaks, to)
 
     lines.push('')
     lines.push(
@@ -86,12 +162,11 @@ function dayPlanToText(day: DayPlan): string {
     const { from, to, leg } = day.segments[i]
 
     if (i === 0) {
-      lines.push(stopLine(from.time, from.waypoint, from.weather))
+      lines.push(formatStopLine(from, [], undefined))
       lines.push('')
     }
 
-    appendSegmentBreaks(lines, leg.breaks)
-    lines.push(stopLine(to.time, to.waypoint, to.weather))
+    appendSegmentEvents(lines, from, leg.breaks, to)
 
     lines.push('')
     lines.push(
@@ -101,7 +176,9 @@ function dayPlanToText(day: DayPlan): string {
   }
 
   lines.push('')
-  lines.push(`Day total: ${formatDistance(day.summary.totalDistanceKm)} · ${formatDuration(day.summary.totalRidingMinutes)} riding · ${formatDuration(day.summary.totalElapsedMinutes)} on the road`)
+  lines.push(
+    `Day total: ${formatDistance(day.summary.totalDistanceKm)} · ${formatDuration(day.summary.totalRidingMinutes)} riding · ${formatDuration(day.summary.totalElapsedMinutes)} on the road`,
+  )
 
   return lines.join('\n')
 }

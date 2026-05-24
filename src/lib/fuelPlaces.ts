@@ -1,4 +1,8 @@
 import { distanceToRouteKm, samplePointsAlongRoute, type LatLng } from './geo'
+import {
+  getCachedReverseGeocode,
+  setCachedReverseGeocode,
+} from './reverseGeocodeCache'
 
 export interface FuelPlace {
   id: string
@@ -102,23 +106,30 @@ out body;
 }
 
 export async function reverseFuelPlaceName(lat: number, lon: number): Promise<string> {
+  const cached = getCachedReverseGeocode(lat, lon, 5)
+  if (cached) return cached
+
   try {
     const url = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&zoom=18`
     const res = await fetch(url, {
-      headers: { 'Accept-Language': 'en' },
+      headers: {
+        'Accept-Language': 'en',
+        'User-Agent': 'MotorcycleTripPlanner/1.0',
+      },
     })
     if (!res.ok) return 'Fuel stop'
     const data = (await res.json()) as {
       address?: { fuel?: string; amenity?: string; village?: string; town?: string }
       name?: string
     }
-    return (
+    const name =
       data.address?.fuel ||
       data.name ||
       data.address?.village ||
       data.address?.town ||
       'Fuel stop'
-    )
+    if (name !== 'Fuel stop') setCachedReverseGeocode(lat, lon, name, 5)
+    return name
   } catch {
     return 'Fuel stop'
   }

@@ -2,11 +2,15 @@ import type { MultiDayTripPlan, TripDayRoute, TripSettings } from './types'
 
 const STORAGE_KEY = 'motorcycle-trip-planner-trip-v1'
 
+/** Bump when plan shape or break logic changes — invalidates saved plans. */
+export const PLAN_SCHEMA_VERSION = 3
+
 export function tripFingerprint(
   days: TripDayRoute[],
   settings: TripSettings,
 ): string {
   return JSON.stringify({
+    planSchemaVersion: PLAN_SCHEMA_VERSION,
     days: days.map((d) => ({
       fileName: d.fileName,
       label: d.label,
@@ -24,6 +28,7 @@ export function tripFingerprint(
 
 type SavedTripBundle = {
   fingerprint: string
+  planSchemaVersion?: number
   days: TripDayRoute[]
   settings: TripSettings
   plan: unknown
@@ -68,6 +73,7 @@ export function saveTripBundle(
 ): void {
   const bundle: SavedTripBundle = {
     fingerprint,
+    planSchemaVersion: PLAN_SCHEMA_VERSION,
     days,
     settings,
     plan,
@@ -84,21 +90,25 @@ export function saveTripBundle(
 export function loadTripBundle(): {
   days: TripDayRoute[]
   settings: TripSettings
-  plan: MultiDayTripPlan
+  plan: MultiDayTripPlan | null
   output: string
   savedAt: Date
+  needsRegenerate: boolean
 } | null {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
     if (!raw) return null
     const bundle = JSON.parse(raw) as SavedTripBundle
-    if (!bundle.days?.length || !bundle.plan) return null
+    if (!bundle.days?.length) return null
+    const planStale =
+      (bundle.planSchemaVersion ?? 1) < PLAN_SCHEMA_VERSION || !bundle.plan
     return {
       days: bundle.days,
       settings: bundle.settings,
-      plan: reviveDates(bundle.plan) as MultiDayTripPlan,
-      output: bundle.output ?? '',
+      plan: planStale ? null : (reviveDates(bundle.plan) as MultiDayTripPlan),
+      output: planStale ? '' : (bundle.output ?? ''),
       savedAt: new Date(bundle.savedAt),
+      needsRegenerate: planStale,
     }
   } catch {
     return null

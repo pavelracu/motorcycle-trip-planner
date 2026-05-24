@@ -5,6 +5,7 @@ import {
   shouldFuelAtWaypoint,
   shouldMergeLunchWithFuel,
 } from './lookahead'
+import { enrichBreakEvents } from './breakEnrichment'
 import { buildMapMarkers } from './mapData'
 import { collapseToMajorSegments } from './majorSegments'
 import { fetchRouteLeg, type RouteLeg } from './routing'
@@ -27,12 +28,19 @@ type PlannerState = {
   ridingSinceLongBreakMin: number
   kmSinceFuel: number
   kmFromStart: number
+  ridingMinutesFromStart: number
   shortBreakPending: boolean
 }
 
 function advanceRidingKm(state: PlannerState, km: number): void {
   state.kmSinceFuel += km
   state.kmFromStart += km
+}
+
+function addRidingMinutes(state: PlannerState, minutes: number): void {
+  state.ridingSinceShortBreakMin += minutes
+  state.ridingSinceLongBreakMin += minutes
+  state.ridingMinutesFromStart += minutes
 }
 
 function addMinutes(d: Date, minutes: number): Date {
@@ -67,6 +75,7 @@ function recordBreak(
     lat,
     lon,
     kmFromStart: state.kmFromStart,
+    ridingMinutesFromStart: state.ridingMinutesFromStart,
     ...(kmSinceLastFuel !== undefined ? { kmSinceLastFuel } : {}),
   })
   state.time = addMinutes(state.time, durationMinutes)
@@ -116,8 +125,7 @@ function rideLeg(
     if (kmUntilFuel > 0 && remainingKm > kmUntilFuel + 0.01) {
       if (kmAfterFuelToLegEnd(remainingKm, kmUntilFuel) <= fuelAnchorKm(settings, leg)) {
         state.time = addMinutes(state.time, remainingRideMin)
-        state.ridingSinceShortBreakMin += remainingRideMin
-        state.ridingSinceLongBreakMin += remainingRideMin
+        addRidingMinutes(state, remainingRideMin)
         markShortBreakDue(state, settings)
         ridingMinutes += remainingRideMin
         distanceKm += remainingKm
@@ -129,8 +137,7 @@ function rideLeg(
       const fraction = kmUntilFuel / leg.distanceKm
       const rideMin = leg.durationMinutes * fraction
       state.time = addMinutes(state.time, rideMin)
-      state.ridingSinceShortBreakMin += rideMin
-      state.ridingSinceLongBreakMin += rideMin
+      addRidingMinutes(state, rideMin)
       ridingMinutes += rideMin
       distanceKm += kmUntilFuel
       riddenKm += kmUntilFuel
@@ -177,8 +184,7 @@ function rideLeg(
         const fraction = overrun / remainingRideMin
         const rideMin = remainingRideMin * fraction
         state.time = addMinutes(state.time, rideMin)
-        state.ridingSinceShortBreakMin += rideMin
-        state.ridingSinceLongBreakMin += rideMin
+        addRidingMinutes(state, rideMin)
         ridingMinutes += rideMin
         distanceKm += remainingKm * fraction
         riddenKm += remainingKm * fraction
@@ -220,8 +226,7 @@ function rideLeg(
     }
 
     state.time = addMinutes(state.time, remainingRideMin)
-    state.ridingSinceShortBreakMin += remainingRideMin
-    state.ridingSinceLongBreakMin += remainingRideMin
+    addRidingMinutes(state, remainingRideMin)
     markShortBreakDue(state, settings)
     ridingMinutes += remainingRideMin
     distanceKm += remainingKm
@@ -365,9 +370,10 @@ function buildSegments(
       const to = stops[destIdx]
       legIdx++
 
+      breaks.push(...(postStopBreaks[destIdx] ?? []))
+
       const isLastLeg = legIdx >= legs.length
       if (to.waypoint.role !== 'via' || isLastLeg) {
-        breaks.push(...(postStopBreaks[destIdx] ?? []))
         const breakMinutes = breaks.reduce((s, b) => s + b.durationMinutes, 0)
         segments.push({
           from,
@@ -447,7 +453,12 @@ export async function buildTripPlan(
     waypoints.slice(0, -1).map((from, i) => fetchRouteLeg(from, waypoints[i + 1])),
   )
 
-  const stopDrafts: { time: Date; waypoint: Waypoint; kmFromStart: number }[] = []
+  const stopDrafts: {
+    time: Date
+    waypoint: Waypoint
+    kmFromStart: number
+    ridingMinutesFromStart: number
+  }[] = []
   const legs: RouteLegStats[] = []
   const postStopBreaks: BreakEvent[][] = []
   const legPaths: LatLng[][] = []
@@ -458,6 +469,7 @@ export async function buildTripPlan(
     ridingSinceLongBreakMin: 0,
     kmSinceFuel: 0,
     kmFromStart: 0,
+    ridingMinutesFromStart: 0,
     shortBreakPending: false,
   }
 
@@ -465,6 +477,7 @@ export async function buildTripPlan(
     time: new Date(state.time),
     waypoint: waypoints[0],
     kmFromStart: 0,
+    ridingMinutesFromStart: 0,
   })
   postStopBreaks.push([])
 
@@ -485,6 +498,7 @@ export async function buildTripPlan(
       time: new Date(state.time),
       waypoint: waypoints[i + 1],
       kmFromStart: state.kmFromStart,
+      ridingMinutesFromStart: state.ridingMinutesFromStart,
     })
 
     const breaksAfter: BreakEvent[] = []
@@ -524,6 +538,9 @@ export async function buildTripPlan(
     ...legs.flatMap((l) => l.breaks),
     ...postStopBreaks.flat(),
   ]
+
+  onProgress?.('Resolving break locations…')
+  await enrichBreakEvents(allBreaks, onProgress)
 
   return {
     segments,

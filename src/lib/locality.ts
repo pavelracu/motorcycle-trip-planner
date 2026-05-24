@@ -1,13 +1,11 @@
+import {
+  getCachedReverseGeocode,
+  setCachedReverseGeocode,
+} from './reverseGeocodeCache'
 import type { Waypoint } from './types'
-
-const localityCache = new Map<string, string>()
 
 const STREET_LIKE =
   /^(calle|carretera|avenida|av\.|praça|praça|plaza|rua|estrada|ma-|bo\s|paseo|camino|travessa)/i
-
-function cacheKey(lat: number, lon: number): string {
-  return `${lat.toFixed(4)},${lon.toFixed(4)}`
-}
 
 function localityFromAddress(address: Record<string, string>): string | undefined {
   return (
@@ -28,8 +26,7 @@ function keepCustomDisplayName(wp: Waypoint): boolean {
 }
 
 async function fetchLocality(lat: number, lon: number): Promise<string | undefined> {
-  const key = cacheKey(lat, lon)
-  const cached = localityCache.get(key)
+  const cached = getCachedReverseGeocode(lat, lon)
   if (cached) return cached
 
   const url = new URL('https://nominatim.openstreetmap.org/reverse')
@@ -46,7 +43,7 @@ async function fetchLocality(lat: number, lon: number): Promise<string | undefin
 
   const data = (await res.json()) as { address?: Record<string, string> }
   const name = data.address ? localityFromAddress(data.address) : undefined
-  if (name) localityCache.set(key, name)
+  if (name) setCachedReverseGeocode(lat, lon, name)
   return name
 }
 
@@ -63,9 +60,10 @@ export async function enrichWaypointsWithLocality(
     if (keepCustomDisplayName(wp)) continue
 
     onProgress?.(`Resolving city ${i + 1}/${waypoints.length}…`)
+    const hadCache = getCachedReverseGeocode(wp.lat, wp.lon) !== undefined
     const city = await fetchLocality(wp.lat, wp.lon)
     if (city) wp.displayName = city
 
-    if (i < waypoints.length - 1) await sleep(1100)
+    if (!hadCache && i < waypoints.length - 1) await sleep(1100)
   }
 }

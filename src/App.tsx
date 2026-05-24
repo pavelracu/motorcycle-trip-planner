@@ -4,6 +4,7 @@ import { labelFromFileName } from './lib/dayRouteLabel'
 import { multiDayPlanToText } from './lib/exportText'
 import { parseRouteFile } from './lib/parseRouteFile'
 import { initRouteCache } from './lib/routing'
+import { reverseGeocodeCacheSize } from './lib/reverseGeocodeCache'
 import { buildMultiDayTripPlan } from './lib/multiDayPlanner'
 import {
   clearSavedTrip,
@@ -192,9 +193,12 @@ export default function App() {
       setDays(saved.days)
       setSettings(saved.settings)
       setPlan(saved.plan)
-      setOutput(saved.output)
+      setOutput(saved.plan ? multiDayPlanToText(saved.plan) : saved.output)
+      const geoCache = reverseGeocodeCacheSize()
       setStatus(
-        `Restored trip saved ${formatSavedAt(saved.savedAt)}${cachedRoutes > 0 ? ` · ${cachedRoutes} cached routes` : ''}`,
+        saved.needsRegenerate
+          ? `Restored routes from ${formatSavedAt(saved.savedAt)} — click Generate to refresh the plan`
+          : `Restored trip saved ${formatSavedAt(saved.savedAt)}${cachedRoutes > 0 ? ` · ${cachedRoutes} cached routes` : ''}${geoCache > 0 ? ` · ${geoCache} cached places` : ''}`,
       )
     } else if (cachedRoutes > 0) {
       setStatus(`${cachedRoutes} cached route legs ready`)

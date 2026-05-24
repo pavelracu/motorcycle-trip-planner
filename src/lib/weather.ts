@@ -24,10 +24,6 @@ const WMO: Record<number, string> = {
 
 const weatherCache = new Map<string, Promise<WeatherAtStop | undefined>>()
 
-function weatherKey(wp: Waypoint, at: Date): string {
-  return `${wp.lat},${wp.lon},${at.toISOString().slice(0, 13)}`
-}
-
 async function fetchWeatherUncached(
   wp: Waypoint,
   at: Date,
@@ -63,10 +59,25 @@ async function fetchWeatherUncached(
 }
 
 export function fetchWeather(wp: Waypoint, at: Date): Promise<WeatherAtStop | undefined> {
-  const key = weatherKey(wp, at)
+  return fetchWeatherAt(wp.lat, wp.lon, at)
+}
+
+export function fetchWeatherAt(
+  lat: number,
+  lon: number,
+  at: Date,
+): Promise<WeatherAtStop | undefined> {
+  const key = `${lat.toFixed(4)},${lon.toFixed(4)},${at.toISOString().slice(0, 13)}`
   const cached = weatherCache.get(key)
   if (cached) return cached
 
+  const wp: Waypoint = {
+    name: '',
+    displayName: '',
+    lat,
+    lon,
+    role: 'via',
+  }
   const promise = fetchWeatherUncached(wp, at)
   weatherCache.set(key, promise)
   return promise
