@@ -1,50 +1,46 @@
 # Motorcycle Trip Planner
 
-Upload a GPX with waypoints from Google My Maps and get a timed itinerary with weather, distance, and riding duration between stops.
+Plan multi-day motorcycle trips from GPX/KML files — timed itinerary, fuel stops, break rules, weather, and an interactive map.
 
-## Run locally
+**Live demo:** [ride.pavelracu.com](https://ride.pavelracu.com)
+
+## Features
+
+- Upload one GPX/KML file per riding day
+- OSRM routing with fuel, short break (every 2h), and lunch (every 4h) planning
+- Smart break merging — defer short breaks toward upcoming fuel or lunch when within tolerance
+- Multi-day trips with per-day start times and color-coded map routes
+- Gas station layer (OSM, 10 km corridor along route) plus user-saved fuel pins
+- Weather at each stop and break (Open-Meteo)
+- Reverse-geocoded place names for breaks and waypoints
+- Browser-local persistence for routes, plans, and geocode cache
+
+## Quick start
 
 ```bash
 npm install
 npm run dev
 ```
 
-Open http://localhost:5173
+Open [http://localhost:5173](http://localhost:5173), upload route files, and click **Generate plan**.
 
-## Export GPX from Google My Maps
+## Deploy (Cloudflare Pages)
 
-1. Open your [My Maps](https://www.google.com/maps/d/) layer.
-2. Click the three dots on the layer → **Export to KML/KMZ**.
-3. Convert KML to GPX (e.g. [gpsvisualizer.com convert](https://www.gpsvisualizer.com/convert_input) or `gpsbabel`).
-4. Ensure the GPX contains `<wpt>` elements (one per stop). The app also accepts route `<rtept>` or sampled `<trkpt>`.
-
-## Defaults (Speed Twin 1200)
-
-- Departure: **25 May 2026, 06:00**
-- Tank range: **180 km** (practical; theoretical ~264 km at 5.3 L/100 km × 14 L)
-- Short break: **15 min** every **2 h** riding (or fuel stop)
-- Lunch: **60 min** every **4 h** riding
-
-## Waypoint names
-
-- `[via]` prefix — routed through, omitted from itinerary (e.g. `[via] curve on N4`)
-- `[stop]` prefix — always shown as a stop
-- Short legs (&lt; 25 km by default) between stops auto-merge as via
-- Country suffixes (`, Portugal`, `, Spain`) are stripped from display names
-
-## Output format
-
-```
-06:00, Barreiro, 16°C partly cloudy
-
-11:18, Sevilla, 23°C mainly clear
-11:18, 🍽️ Lunch (+1h)
-
-176 kms, 2h 15m riding · 3h 31m total
-
-—
-Total: 620 kms · 9h riding · 11h 30m on the road
-Breaks: 2 fuel, 1 lunch
+```bash
+npm run build
+npm run deploy
 ```
 
-Routing uses [OSRM](https://project-osrm.org/) (driving). Weather uses [Open-Meteo](https://open-meteo.com/) (no API key).
+Requires [Wrangler](https://developers.cloudflare.com/workers/wrangler/) and a Cloudflare Pages project named `ride`.
+
+## Data & privacy
+
+All trip data stays in your browser (`localStorage`). Routing uses the public [OSRM](https://project-osrm.org/) demo server; geocoding uses [Nominatim](https://nominatim.org/) (please respect their usage policy); fuel stations come from [OpenStreetMap](https://www.openstreetmap.org/) via Overpass.
+
+## Tech stack
+
+React 19 · Vite · TypeScript · Tailwind CSS v4 · Leaflet · Open-Meteo
+
+## License
+
+MIT — see [LICENSE](LICENSE).
