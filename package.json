@@ -7,14 +7,15 @@
     "type": "git",
     "url": "https://github.com/pavelracu/motorcycle-trip-planner.git"
   },
-  "homepage": "https://ride.pages.dev",
+  "homepage": "https://www.pavelracu.com/ride/",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "build:site": "VITE_BASE_PATH=/ride/ tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "deploy": "npm run build && wrangler pages deploy dist --project-name=ride"
+    "deploy:site": "npm run build:site && rsync -a --delete dist/ ../personal/codebase/pavelracu-site/ride/"
   },
   "dependencies": {
     "leaflet": "^1.9.4",

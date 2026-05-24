@@ -2,7 +2,7 @@
 
 Plan multi-day motorcycle trips from GPX/KML files — timed itinerary, fuel stops, break rules, weather, and an interactive map.
 
-**Live demo:** [ride.pages.dev](https://ride.pages.dev) (custom domain `ride.pavelracu.com` can be wired in Cloudflare Pages → ride → Custom domains)
+**Live demo:** [pavelracu.com/ride](https://www.pavelracu.com/ride/)
 
 ## Features
 
@@ -24,14 +24,15 @@ npm run dev
 
 Open [http://localhost:5173](http://localhost:5173), upload route files, and click **Generate plan**.
 
-## Deploy (Cloudflare Pages)
+## Deploy (pavelracu.com/ride/)
 
 ```bash
-npm run build
-npm run deploy
+npm run deploy:site
+cd ../personal/codebase/pavelracu-site
+wrangler pages deploy . --project-name=pavelracu
 ```
 
-Requires [Wrangler](https://developers.cloudflare.com/workers/wrangler/) and a Cloudflare Pages project named `ride`.
+Builds with base path `/ride/` and copies static assets into the personal site repo, then deploy the whole site to Cloudflare Pages.
 
 ## Data & privacy
 
