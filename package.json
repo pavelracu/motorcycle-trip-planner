@@ -3,6 +3,11 @@
   "private": false,
   "version": "1.0.0",
   "description": "Multi-day motorcycle trip planner from GPX/KML with fuel, breaks, weather, and map",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/pavelracu/motorcycle-trip-planner.git"
+  },
+  "homepage": "https://ride.pavelracu.com",
   "type": "module",
   "scripts": {
     "dev": "vite",
