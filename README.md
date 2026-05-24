@@ -2,7 +2,7 @@
 
 Plan multi-day motorcycle trips from GPX/KML files — timed itinerary, fuel stops, break rules, weather, and an interactive map.
 
-**Live demo:** [ride.pavelracu.com](https://ride.pavelracu.com)
+**Live demo:** [ride.pages.dev](https://ride.pages.dev) (custom domain `ride.pavelracu.com` can be wired in Cloudflare Pages → ride → Custom domains)
 
 ## Features
 
