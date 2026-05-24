@@ -39,24 +39,8 @@ function addMinutes(d: Date, minutes: number): Date {
   return new Date(d.getTime() + minutes * 60_000)
 }
 
-function markShortBreakDue(
-  state: PlannerState,
-  settings: TripSettings,
-  legIdx: number,
-  legs: RouteLeg[],
-): void {
+function markShortBreakDue(state: PlannerState, settings: TripSettings): void {
   if (state.ridingSinceShortBreakMin < settings.shortBreakEveryMinutes) return
-  if (
-    shouldDeferShortBreak(
-      legIdx,
-      state.kmSinceFuel,
-      state.ridingSinceLongBreakMin,
-      legs,
-      settings,
-    )
-  ) {
-    return
-  }
   state.shortBreakPending = true
 }
 
@@ -134,7 +118,7 @@ function rideLeg(
         state.time = addMinutes(state.time, remainingRideMin)
         state.ridingSinceShortBreakMin += remainingRideMin
         state.ridingSinceLongBreakMin += remainingRideMin
-        markShortBreakDue(state, settings, legIdx + 1, allLegs)
+        markShortBreakDue(state, settings)
         ridingMinutes += remainingRideMin
         distanceKm += remainingKm
         advanceRidingKm(state, remainingKm)
@@ -152,7 +136,7 @@ function rideLeg(
       riddenKm += kmUntilFuel
       advanceRidingKm(state, kmUntilFuel)
       state.kmSinceFuel = 0
-      markShortBreakDue(state, settings, legIdx, allLegs)
+      markShortBreakDue(state, settings)
 
       const [lat, lon] = pointAlongPath(leg.path, riddenKm / leg.distanceKm)
       recordBreak(
@@ -173,17 +157,21 @@ function rideLeg(
 
     const slackLimit =
       settings.shortBreakEveryMinutes + settings.restToleranceMinutes
-    if (
+    const deferShortBreak = shouldDeferShortBreak(
+      legIdx,
+      state.kmSinceFuel,
+      state.ridingSinceLongBreakMin,
+      state.ridingSinceShortBreakMin,
+      allLegs,
+      settings,
+    )
+    const mustTakeShortBreak =
       state.shortBreakPending &&
-      state.ridingSinceShortBreakMin + remainingRideMin >= slackLimit &&
-      !shouldDeferShortBreak(
-        legIdx,
-        state.kmSinceFuel,
-        state.ridingSinceLongBreakMin,
-        allLegs,
-        settings,
-      )
-    ) {
+      (state.ridingSinceShortBreakMin >= slackLimit ||
+        (state.ridingSinceShortBreakMin + remainingRideMin >= slackLimit &&
+          !deferShortBreak))
+
+    if (mustTakeShortBreak) {
       const overrun = slackLimit - state.ridingSinceShortBreakMin
       if (overrun > 0 && overrun < remainingRideMin) {
         const fraction = overrun / remainingRideMin
@@ -212,13 +200,29 @@ function rideLeg(
         )
         state.ridingSinceShortBreakMin = 0
         state.shortBreakPending = false
+      } else {
+        const [lat, lon] = pointAlongPath(
+          leg.path,
+          Math.min(1, riddenKm / leg.distanceKm),
+        )
+        recordBreak(
+          breaks,
+          state,
+          'short',
+          settings.shortBreakDurationMinutes,
+          lat,
+          lon,
+        )
+        state.ridingSinceShortBreakMin = 0
+        state.shortBreakPending = false
+        continue
       }
     }
 
     state.time = addMinutes(state.time, remainingRideMin)
     state.ridingSinceShortBreakMin += remainingRideMin
     state.ridingSinceLongBreakMin += remainingRideMin
-    markShortBreakDue(state, settings, legIdx + 1, allLegs)
+    markShortBreakDue(state, settings)
     ridingMinutes += remainingRideMin
     distanceKm += remainingKm
     advanceRidingKm(state, remainingKm)
@@ -311,15 +315,18 @@ function applyWaypointBreaks(
   const slackExceeded =
     state.ridingSinceShortBreakMin >=
     settings.shortBreakEveryMinutes + settings.restToleranceMinutes
-  const pushToAnchor = shouldDeferShortBreak(
-    nextLegIdx,
-    state.kmSinceFuel,
-    state.ridingSinceLongBreakMin,
-    allLegs,
-    settings,
-  )
+  const pushToAnchor =
+    !slackExceeded &&
+    shouldDeferShortBreak(
+      nextLegIdx,
+      state.kmSinceFuel,
+      state.ridingSinceLongBreakMin,
+      state.ridingSinceShortBreakMin,
+      allLegs,
+      settings,
+    )
 
-  if (at.role === 'stop' || (slackExceeded && !pushToAnchor)) {
+  if (at.role === 'stop' || slackExceeded || !pushToAnchor) {
     recordBreak(
       breaks,
       state,

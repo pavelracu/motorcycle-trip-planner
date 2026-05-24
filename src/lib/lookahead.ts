@@ -94,9 +94,14 @@ export function shouldDeferShortBreak(
   legIdx: number,
   kmSinceFuel: number,
   ridingSinceLongMin: number,
+  ridingSinceShortMin: number,
   legs: RouteLeg[],
   settings: TripSettings,
 ): boolean {
+  const slackLimit =
+    settings.shortBreakEveryMinutes + settings.restToleranceMinutes
+  if (ridingSinceShortMin >= slackLimit) return false
+
   const tolerance = settings.restToleranceMinutes
   const untilAnchor = Math.min(
     minutesUntilFuel(legIdx, kmSinceFuel, legs, settings.tankRangeKm),

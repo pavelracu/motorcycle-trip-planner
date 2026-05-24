@@ -19,24 +19,20 @@ function stopLine(
   time: Date,
   waypoint: Waypoint,
   weather?: { tempC: number; description: string },
-  atStopBreaks?: BreakEvent[],
 ): string {
   const weatherPart = weather
     ? `${weather.tempC}°C ${weather.description}`
     : 'weather unavailable'
-  const breakPart =
-    atStopBreaks && atStopBreaks.length > 0
-      ? ` — ${atStopBreaks.map(breakSuffix).join('; ')}`
-      : ''
-  return `${formatTime(time)}, ${waypoint.displayName}, ${weatherPart}${breakPart}`
+  return `${formatTime(time)}, ${waypoint.displayName}, ${weatherPart}`
 }
 
-function isMidLegBreak(kind: BreakEvent['kind']): boolean {
-  return kind === 'fuel'
-}
-
-function atStopBreaks(breaks: BreakEvent[]): BreakEvent[] {
-  return breaks.filter((b) => !isMidLegBreak(b.kind))
+function appendSegmentBreaks(lines: string[], breaks: BreakEvent[]): void {
+  const sorted = [...breaks].sort(
+    (a, b) => a.time.getTime() - b.time.getTime(),
+  )
+  for (const b of sorted) {
+    lines.push(`${formatTime(b.time)}, ${breakSuffix(b)}`)
+  }
 }
 
 function appendSummaryLines(lines: string[], summary: TripPlan['summary']): void {
@@ -63,12 +59,8 @@ export function planToText(plan: TripPlan): string {
       lines.push('')
     }
 
-    for (const b of leg.breaks) {
-      if (isMidLegBreak(b.kind)) lines.push(`${formatTime(b.time)}, ${breakSuffix(b)}`)
-    }
-
-    const mergedAtStop = atStopBreaks(leg.breaks)
-    lines.push(stopLine(to.time, to.waypoint, to.weather, mergedAtStop))
+    appendSegmentBreaks(lines, leg.breaks)
+    lines.push(stopLine(to.time, to.waypoint, to.weather))
 
     lines.push('')
     lines.push(
@@ -98,12 +90,8 @@ function dayPlanToText(day: DayPlan): string {
       lines.push('')
     }
 
-    for (const b of leg.breaks) {
-      if (isMidLegBreak(b.kind)) lines.push(`${formatTime(b.time)}, ${breakSuffix(b)}`)
-    }
-
-    const mergedAtStop = atStopBreaks(leg.breaks)
-    lines.push(stopLine(to.time, to.waypoint, to.weather, mergedAtStop))
+    appendSegmentBreaks(lines, leg.breaks)
+    lines.push(stopLine(to.time, to.waypoint, to.weather))
 
     lines.push('')
     lines.push(
